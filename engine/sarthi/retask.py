@@ -32,6 +32,7 @@ class RetaskResult(BaseModel):
     diff: PlanDiff
     notes: list[str]
     naive_diff: PlanDiff | None = None  # same events, re-planned from scratch (for comparison)
+    naive_seconds: float | None = None
 
 
 def retask(world: World, plan: Plan, events: list, time_limit: float = 10.0,
@@ -43,6 +44,7 @@ def retask(world: World, plan: Plan, events: list, time_limit: float = 10.0,
     if compare_naive:
         naive = optimizer.solve(new_world, cands, baseline=plan, time_limit=time_limit, churn=False)
         res.naive_diff = diff_plans(new_world, plan, naive)
+        res.naive_seconds = naive.solve_seconds
     return res
 
 

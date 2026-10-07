@@ -2,6 +2,7 @@
 
     python -m sarthi.benchmark [--seeds 20] [--time-limit 10]
     python -m sarthi.benchmark --coa [--seeds 8]     # the three courses of action, side by side
+    python -m sarthi.benchmark --retask [--seeds 8] [--scale 2]   # fog at the busiest base: churn vs naive re-plan
 """
 from __future__ import annotations
 
@@ -10,6 +11,8 @@ import statistics as st
 import time
 
 from . import candidates, coa, greedy, optimizer
+from .events import BaseClosure
+from .retask import retask
 from .kpi import kpis
 from .scenario import generate
 from .scenario_hadr import generate_hadr
@@ -23,9 +26,13 @@ def main() -> None:
     ap.add_argument("--strikes", type=int, default=14, help="strike missions per scenario (load)")
     ap.add_argument("--coa", action="store_true", help="compare the courses of action instead")
     ap.add_argument("--hadr", action="store_true", help="flood-relief scenario instead of the conflict one")
+    ap.add_argument("--retask", action="store_true", help="retask benchmark: busiest base fogged 05:00-09:30")
+    ap.add_argument("--scale", type=int, default=1, help="mission-count multiplier for --retask (1, 2, 3)")
     args = ap.parse_args()
     if args.coa:
         return coa_benchmark(args)
+    if args.retask:
+        return retask_benchmark(args)
 
     rows = []
     print(f"{'seed':>4} {'missions':>8} | {'greedy fulfil':>13} {'EV':>5} | {'sarthi fulfil':>13} {'EV':>5} {'t(s)':>6}")
@@ -89,6 +96,35 @@ def coa_benchmark(args) -> None:
     for name, rows in agg.items():
         means = [st.mean(r[i] for r in rows) for i in range(len(cols))]
         print(f"  {name:<18}" + " ".join(f"{k}={fmt.format(v)}" for (k, _, fmt), v in zip(cols, means)))
+
+
+def retask_benchmark(args) -> None:
+    """Busiest base fogged 05:00-09:30, learnt at 02:00: minimal-disruption retask vs a naive re-plan."""
+    k = args.scale
+    rows = []
+    for seed in range(1, args.seeds + 1):
+        w = generate(seed, n_strike=14 * k, n_dca=5 * k, n_cas=4 * k, n_isr=3 * k, n_airlift=3 * k)
+        c = candidates.build(w)
+        plan = optimizer.solve(w, c, hint=greedy.solve(w, c), time_limit=args.time_limit)
+        busiest = max(w.bases, key=lambda b: sum(s.base == b for a in plan.assignments.values() for s in a.sorties))
+        t0 = time.perf_counter()
+        res = retask(w, plan, [BaseClosure(at=120, base=busiest, start=300, end=570)], args.time_limit,
+                     compare_naive=True)
+        secs = time.perf_counter() - t0 - (res.naive_seconds or 0)
+        errs = validate(res.world, res.plan, candidates.build(res.world), optimizer.frozen_missions(res.world, res.plan))
+        if errs:
+            raise SystemExit(f"constraint violation on seed {seed}: {errs[:5]}")
+        before, after = kpis(w, plan), kpis(res.world, res.plan)
+        sorties = after["sorties"]
+        rows.append((len(w.missions), res.naive_diff.aircraft_changes, res.diff.aircraft_changes, secs,
+                     before["priority_weighted_fulfilment"], after["priority_weighted_fulfilment"], sorties))
+        print(f"seed {seed}: {rows[-1][0]} missions, aircraft changed naive {rows[-1][1]} vs {rows[-1][2]} "
+              f"in {secs:.1f} s, fulfilment {rows[-1][4]:.1%} -> {rows[-1][5]:.1%} ({sorties} sorties)")
+    m = lambda i: st.mean(r[i] for r in rows)
+    print("-" * 64)
+    print(f"mean over {args.seeds} scenarios ({m(0):.0f} missions): aircraft changed naive {m(1):.1f} vs "
+          f"{m(2):.1f} ({1 - m(2) / max(m(1), 1e-9):.0%} fewer), retask {m(3):.1f} s, "
+          f"fulfilment {m(4):.1%} -> {m(5):.1%}")
 
 
 if __name__ == "__main__":

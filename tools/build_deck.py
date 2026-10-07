@@ -39,8 +39,8 @@ BAND = RGBColor(0x1E, 0x6B, 0x1E)
 R = {
     "fulfil": ("85.1%", "97.5%"),
     "ev": ("65.3%", "78.8%"),
-    "churn": ("37.5", "12.8"),
-    "retask_s": "1.7 s",
+    "churn": ("49.5", "14.5"),
+    "retask_s": "2.8 s",
     "fog_pod": ("26%", "70%"),
     "bss": "+44%",
     "auc": "0.91",
@@ -197,7 +197,7 @@ def slide_title(prs):
     box(s, 7.35, 4.6, 5.55, 2.2, fill=PANEL)
     text(s, 7.55, 4.7, 5.2, 0.3, "MEASURED ON THE PROTOTYPE", size=11, color=MUTED, bold=True)
     stats = [(f"+{float(R['fulfil'][1][:-1]) - float(R['fulfil'][0][:-1]):.1f} pts", "mission fulfilment vs a manual-style plan"),
-             ("−66%", "aircraft reassigned on a retask vs re-planning from scratch"),
+             ("−71%", "aircraft reassigned on a retask vs re-planning from scratch"),
              (R["fog_pod"][1], f"of fog hours forecast (raw weather model: {R['fog_pod'][0]})")]
     yy = 5.05
     for big, small in stats:

@@ -17,8 +17,8 @@ this repo (`engine/`):
 
 1. **Minimal-disruption retasking.** When something changes, we don't regenerate the ATO. We compute the
    *smallest set of changes* that recovers the most mission value, and show it as a reviewable
-   "diff" of the plan. Measured on 8 scenarios: **66% fewer aircraft reassignments than a re-plan
-   from scratch (12.8 vs 37.5), in 1.7 s, with almost no loss of mission value.**
+   "diff" of the plan. Measured on 8 scenarios: **71% fewer aircraft reassignments than a re-plan
+   from scratch (14.5 vs 49.5), in under 3 s, with almost no loss of mission value.**
 2. **One integrated model, not seven silos.** Aircraft, crew fatigue, weapons, tankers, weather,
    threats, airspace and alert reserves are all in a single optimisation, so cascades are handled
    automatically. A pop-up SAM triggers a reroute, which lengthens the route, which needs a
@@ -492,11 +492,23 @@ Run everything with `./run.sh`, then open http://127.0.0.1:8000. It works offlin
 | Mean sortie risk | 7.2% | 7.7% (flies more of the hard missions) |
 | Plan time, 33–39 missions | ms (but worse plan) | 4–10 s |
 
-| Retask: busiest base fogged 05:00–09:30 (8 scenarios) | Naive re-plan | VAYU-SARTHI |
+| Retask: busiest base fogged 05:00–09:30, known at 02:00 (8 scenarios; `python -m sarthi.benchmark --retask`) | Naive re-plan | VAYU-SARTHI |
 |---|---|---|
-| Aircraft reassignments (out of ~60 sorties) | 37.5 | **12.8 (−66%)** |
-| Solve time | similar | **1.7 s** |
-| Priority-weighted fulfilment after event | n/a | 96.7% (from 97.7%) |
+| Aircraft reassignments (out of ~70 sorties) | 49.5 | **14.5 (−71%)** |
+| Solve time | similar | **2.8 s** |
+| Priority-weighted fulfilment after event | n/a | 95.6% (from 96.5%) |
+
+| Scale (laptop, 4 CPUs; 3 scenarios each) | ~37 missions | ~70 missions | ~104 missions |
+|---|---|---|---|
+| Plan: fulfilment, greedy → VAYU-SARTHI | 82.7% → **98.5%** | 80.7% → **90.1%** | 70.4% → **74.0%** |
+| Plan time (limit 20 s) | 5–20 s, mostly optimal | 20 s, feasible | 20 s, feasible |
+| Retask (10 s limit): aircraft changed, naive → minimal | 54 → 14, 3 s | 166 → 48, 12 s | n/a → 52, 12.5 s |
+
+Above ~70 missions on one laptop the solver uses its whole time budget and the advantage over greedy narrows (the
+fleet is also saturated at ~104 missions). The answer is large-neighbourhood search: re-solve the disturbed part
+of the plan with the rest held. A first, naive version (hold every undisturbed mission, then polish with the full
+model) anchored the search on worse low-churn plans and was **not** adopted. The next attempt picks neighbourhoods by
+time window and base and accepts a step only if the full objective improves.
 
 | Courses of action (8 scenarios, mean; `python -m sarthi.benchmark --coa --seeds 8`) | Max effect | Min risk | Defensive posture |
 |---|---|---|---|
@@ -518,7 +530,7 @@ aircraft. All 24 COA plans pass the independent validator under their own intent
 - Routing is 2-D with no terrain.
 - The fatigue calibration is illustrative.
 - Airborne retasking (diverting a CAP pair) is not modelled yet.
-- At larger scale the solver needs LNS (§6.4).
+- At larger scale the solver needs LNS (§6.4); the scale table above shows where (~70+ missions on one laptop).
 
 ---
 
@@ -631,7 +643,7 @@ Steps marked ▶ work in the current build (`./run.sh`). The others need the 9.0
 - **Feasibility & viability:** a core engine already works (benchmark table §8); open-source stack, runs offline on one laptop;
   risks and mitigations (§14); scale path (LNS, decomposition by sector/time).
 - **Impact & benefits:** planning time from hours to seconds; +12 pts mission fulfilment from the same fleet;
-  66% less churn on retask; safer crews (fatigue-aware); dual-use for HADR and logistics; indigenous,
+  71% less churn on retask; safer crews (fatigue-aware); dual-use for HADR and logistics; indigenous,
   aligned with IACCS/UDAAN and DRDO's ETAI trustworthy-AI framework.
 - **References:** §16.
 
@@ -681,8 +693,10 @@ notional data; it does not engage targets.
   (risk ceilings × 0.6, a price on expected losses, defer strikes below P7, hold 60% of fighters for air defence).
   The rules are hard constraints the validator checks, not hidden weights. Each COA is re-planned from the current
   plan with churn penalised, so adopting one does not tear up the ATO.
-- **How does it scale to a real theatre?** It is at 4–10 s for about 40 missions now. LNS and decomposition by sector and
-  time window give near-linear growth. Retask touches only the affected neighbourhood.
+- **How does it scale to a real theatre?** About 40 missions plan in 5–20 s and retask in ~3 s. At ~70 missions the
+  plan needs its full 20 s and retasks take ~12 s, still 10 points better than greedy (measured, §8). Beyond that:
+  large-neighbourhood search and decomposition by sector and time window. A first naive LNS was tested and rejected
+  because it anchored on worse plans; we measure before we claim.
 - **What if the network is down?** Each base runs an edge node with its own copy of state and the engine,
   and syncs over a NATS leaf node when the link returns.
 - **How do you integrate with IAF systems?** Through an adapter per source behind the event bus; the core sees only the

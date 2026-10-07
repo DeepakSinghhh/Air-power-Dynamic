@@ -230,7 +230,7 @@ await caption('')
 
 await card('MEASURED ON THE PROTOTYPE', 'VAYU-SARTHI', [
   '+12.4 pts mission fulfilment vs a manual-style plan (20 scenarios)',
-  '66% fewer aircraft reassigned on a retask, in under 2 s',
+  '71% fewer aircraft reassigned on a retask, in under 3 s',
   'Fog: 70% of fog hours forecast vs 26% from raw model visibility',
   'Flood relief: 94.5% of requested tonnage planned vs 81.6% (same fleet)',
 ], 6000)
