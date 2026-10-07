@@ -385,14 +385,13 @@ export default function MapView() {
     return new Set(Object.keys(view.world.threats).filter((id) => !(id in committed)))
   }, [view])
 
+  // The threat-surface image is costly to rasterise; rebuild it only when the data changes.
+  const hazardImg = useMemo(() => (hazard ? hazardImage(hazard) : null), [hazard])
+
+  // Layers that do not depend on hover/focus, so hovering stays cheap.
   const staticLayers = useMemo(() => {
-    const { world, plan, envelopes } = view
-    const t = useStore.getState().viewTime
-    const missions = Object.values(world.missions)
+    const { world, envelopes } = view
     const threats = Object.values(world.threats)
-    const bases = Object.values(world.bases)
-    const famRGBA = (m: Mission, a = 1) => rgba(roleColor(m.role), a)
-    const dimmed = (missionId: string) => focusMission !== null && focusMission !== missionId
     const layers = []
 
     if (basemap) {
@@ -432,11 +431,11 @@ export default function MapView() {
       }),
     )
 
-    if (layersOn.hazard && hazard) {
+    if (layersOn.hazard && hazard && hazardImg) {
       layers.push(
         new BitmapLayer({
           id: 'hazard',
-          image: hazardImage(hazard),
+          image: hazardImg,
           bounds: [
             hazard.lon0 - hazard.res / 2,
             hazard.lat0 - hazard.res / 2,
@@ -504,6 +503,19 @@ export default function MapView() {
         }),
       )
     }
+
+    return layers
+  }, [view, basemap, layersOn, hazard, hazardImg, selection, newThreats])
+
+  // Layers that change with hover/focus or the clock.
+  const focusLayers = useMemo(() => {
+    const { world, plan } = view
+    const t = useStore.getState().viewTime
+    const missions = Object.values(world.missions)
+    const bases = Object.values(world.bases)
+    const famRGBA = (m: Mission, a = 1) => rgba(roleColor(m.role), a)
+    const dimmed = (missionId: string) => focusMission !== null && focusMission !== missionId
+    const layers = []
 
     // Routes and changes.
     if (layersOn.routes) {
@@ -624,7 +636,7 @@ export default function MapView() {
     return layers
     // viewTime only matters here for base status; refresh it every 5 simulated minutes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, basemap, layersOn, hazard, groups, ghosts, focusMission, selection, newThreats, Math.floor(viewTime / 5)])
+  }, [view, layersOn, groups, ghosts, focusMission, selection, Math.floor(viewTime / 5)])
 
   const labels = useMemo(() => {
     const { world, plan } = view
@@ -787,27 +799,45 @@ export default function MapView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selection])
 
+  const dropThreat = (lon: number, lat: number) => {
+    if (!tool) return
+    const at = eventTime()
+    let n = 1
+    while (`POPUP-${String(n).padStart(2, '0')}` in view.world.threats) n++
+    const lr = tool === 'SAM-LR'
+    void propose(
+      [{
+        kind: 'new_threat',
+        at,
+        threat: {
+          id: `POPUP-${String(n).padStart(2, '0')}`, kind: tool, lat: +lat.toFixed(3), lon: +lon.toFixed(3),
+          radius_km: lr ? 110 : 45, pk: lr ? 0.55 : 0.5, observed_at: at, mobile_kmh: lr ? 0 : 6,
+        },
+      }],
+      `Pop-up ${tool} at ${lat.toFixed(2)}N ${lon.toFixed(2)}E`,
+    )
+  }
+
+  // In drop mode, place the threat from the raw pointer-up (unprojected through the current view),
+  // so a slow re-render can never swallow the click.
+  const downAt = useRef<[number, number] | null>(null)
+  const onPointerDown = (e: React.PointerEvent) => {
+    downAt.current = [e.clientX, e.clientY]
+  }
+  const onPointerUp = (e: React.PointerEvent) => {
+    const d = downAt.current
+    downAt.current = null
+    if (!tool || !d || !viewState || !wrapRef.current) return
+    if (Math.hypot(e.clientX - d[0], e.clientY - d[1]) > 6) return // a drag pans the map instead
+    if ((e.target as HTMLElement).tagName !== 'CANVAS') return // ignore clicks on overlays
+    const r = wrapRef.current.getBoundingClientRect()
+    const [lon, lat] = new WebMercatorViewport({ ...viewState, width: r.width, height: r.height })
+      .unproject([e.clientX - r.left, e.clientY - r.top])
+    dropThreat(lon, lat)
+  }
+
   const onClick = (info: PickingInfo) => {
-    if (tool && info.coordinate) {
-      const [lon, lat] = info.coordinate as LonLat
-      const at = eventTime()
-      let n = 1
-      while (`POPUP-${String(n).padStart(2, '0')}` in view.world.threats) n++
-      const id = `POPUP-${String(n).padStart(2, '0')}`
-      const lr = tool === 'SAM-LR'
-      void propose(
-        [{
-          kind: 'new_threat',
-          at,
-          threat: {
-            id, kind: tool, lat: +lat.toFixed(3), lon: +lon.toFixed(3),
-            radius_km: lr ? 110 : 45, pk: lr ? 0.55 : 0.5, observed_at: at, mobile_kmh: lr ? 0 : 6,
-          },
-        }],
-        `Pop-up ${tool} at ${lat.toFixed(2)}N ${lon.toFixed(2)}E`,
-      )
-      return
-    }
+    if (tool) return // handled by onPointerUp
     const { id, o } = resolvePick(info)
     if (!o || !id) return select(null)
     if (id === 'bases') select({ kind: 'base', id: o.id as string })
@@ -818,7 +848,10 @@ export default function MapView() {
   }
 
   const onHover = (info: PickingInfo) => {
-    if (tool) setCursor((info.coordinate as LonLat) ?? null)
+    if (tool) {
+      setCursor((info.coordinate as LonLat) ?? null)
+      return
+    }
     const body = info.object ? tooltipFor(info, view) : null
     setTip(body ? { x: info.x, y: info.y, body } : null)
     const { id, o } = resolvePick(info)
@@ -831,13 +864,14 @@ export default function MapView() {
   }
 
   return (
-    <div ref={wrapRef} className={`map-wrap dim-when-busy${tool ? ' tool' : ''}`}>
+    <div ref={wrapRef} className={`map-wrap dim-when-busy${tool ? ' tool' : ''}`}
+      onPointerDown={onPointerDown} onPointerUp={onPointerUp}>
       {viewState && (
         <DeckGL
           viewState={viewState}
           onViewStateChange={({ viewState: vs }) => setViewState(vs as MapViewState)}
           controller={{ doubleClickZoom: false }}
-          layers={[...staticLayers, ...labelLayers, ...dynamicLayers]}
+          layers={[...staticLayers, ...focusLayers, ...labelLayers, ...dynamicLayers]}
           parameters={{ depthCompare: 'always', depthWriteEnabled: false }}
           pickingRadius={10}
           onClick={onClick}

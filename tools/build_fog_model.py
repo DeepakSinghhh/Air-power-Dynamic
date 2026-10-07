@@ -2,7 +2,8 @@
 
 Labels: observed METAR visibility (Iowa Environmental Mesonet archive) at north-Indian plains
 airfields. Features: archived Open-Meteo forecasts (historical-forecast API) at the same points.
-Train on three winters, test on the most recent one (temporal hold-out).
+Temporal split: fit on the two oldest winters (equal weight per winter, so an unusually foggy
+winter cannot set the base rate), Platt-recalibrate on the next winter, test on the latest one.
 
     python -I tools/build_fog_model.py <cache-dir>
 
@@ -39,7 +40,7 @@ STATIONS = {
 }
 WINTERS = [("2022-11-15", "2023-02-15"), ("2023-11-15", "2024-02-15"),
            ("2024-11-15", "2025-02-15"), ("2025-11-15", "2026-02-15")]
-TEST = WINTERS[-1]
+FIT, CALIB, TEST = WINTERS[:2], WINTERS[2], WINTERS[3]
 MILE_M = 1609.344
 
 
@@ -122,9 +123,9 @@ def main(cache_dir: str) -> None:
     ids = list(STATIONS)
     pts = [(STATIONS[s][1], STATIONS[s][2]) for s in ids]
 
-    rows = {"train": [], "test": []}
+    rows: dict[str, list] = {"fit": [], "calib": [], "test": []}
     for start, end in WINTERS:
-        split = "test" if (start, end) == TEST else "train"
+        split = "test" if (start, end) == TEST else "calib" if (start, end) == CALIB else "fit"
         print(f"winter {start}..{end} ({split})", flush=True)
         # One multi-station request per winter: behind rate-limited shared IPs the number of
         # successful requests needed matters more than request size. Cache is split per station.
@@ -143,18 +144,24 @@ def main(cache_dir: str) -> None:
                 if v is None or np.isnan(X[i]).any():
                     continue
                 nwp = h["visibility"][i]
-                rows[split].append((X[i], float(v < met.FOG_VIS_M), nwp if nwp is not None else 1e9, sid, t))
-        print(f"  rows so far: train {len(rows['train'])}, test {len(rows['test'])}", flush=True)
+                rows[split].append((X[i], float(v < met.FOG_VIS_M), nwp if nwp is not None else 1e9, sid, t, start))
+        print(f"  rows so far: fit {len(rows['fit'])}, calib {len(rows['calib'])}, test {len(rows['test'])}", flush=True)
 
     def arrays(split):
         r = rows[split]
         return (np.array([x[0] for x in r]), np.array([x[1] for x in r]), np.array([x[2] for x in r], dtype=float))
 
-    Xtr, ytr, _ = arrays("train")
+    Xtr, ytr, _ = arrays("fit")
+    Xca, yca, _ = arrays("calib")
     Xte, yte, nwp_te = arrays("test")
-    model = met.fit_logistic(Xtr, ytr, l2=1.0)
+    # Equal total weight per fitting winter.
+    winters = np.array([r[5] for r in rows["fit"]])
+    sw = np.array([len(winters) / (len(set(winters)) * (winters == w).sum()) for w in winters])
+    raw = met.fit_logistic(Xtr, ytr, l2=1.0, sample_weight=sw)
+    model = met.calibrate(raw, Xca, yca)
     p = met.predict(model, Xte)
-    clim = ytr.mean()
+    p_raw = met.predict(raw, Xte)
+    clim = float(np.concatenate([ytr, yca]).mean())
     brier = float(np.mean((p - yte) ** 2))
     brier_clim = float(np.mean((clim - yte) ** 2))
     bins = np.linspace(0, 1, 11)
@@ -167,9 +174,12 @@ def main(cache_dir: str) -> None:
     meta = {
         "target": "P(visibility < 1 km) at the hour",
         "stations": {s: STATIONS[s][0] for s in ids},
-        "train_winters": [f"{a}..{b}" for a, b in WINTERS if (a, b) != TEST],
+        "train_winters": [f"{a}..{b}" for a, b in FIT],
+        "calibration_winter": f"{CALIB[0]}..{CALIB[1]}",
         "test_winter": f"{TEST[0]}..{TEST[1]}",
-        "n_train": int(len(ytr)), "n_test": int(len(yte)),
+        "n_train": int(len(ytr) + len(yca)), "n_fit": int(len(ytr)), "n_calibration": int(len(yca)),
+        "n_test": int(len(yte)),
+        "brier_uncalibrated": round(float(np.mean((p_raw - yte) ** 2)), 4),
         "fog_rate_test": round(float(yte.mean()), 4),
         "auc": round(auc(yte, p), 3),
         "brier": round(brier, 4), "brier_climatology": round(brier_clim, 4),
@@ -189,7 +199,7 @@ def main(cache_dir: str) -> None:
 
     # Demo night: the test-winter date with the most stations reporting >= 3 fog hours, 00-10 local.
     per_day: dict[str, dict[str, int]] = {}
-    for x, y, _, sid, t in rows["test"]:
+    for x, y, _, sid, t, _w in rows["test"]:
         if y and int(t[11:13]) <= 10:
             per_day.setdefault(t[:10], {}).setdefault(sid, 0)
             per_day[t[:10]][sid] += 1
@@ -207,8 +217,11 @@ def main(cache_dir: str) -> None:
         near = min(ids, key=lambda s: haversine_km(lat, lon, STATIONS[s][1], STATIONS[s][2]))
         if haversine_km(lat, lon, STATIONS[near][1], STATIONS[near][2]) <= 50:
             obs = hourly_obs(cached(cache, f"iem_{near}_{date}.csv", lambda: get(iem_url(near, date, nxt))))
-            entry["observed_vis_m"] = [None if obs.get(t) is None else round(obs[t]) for t in loc["hourly"]["time"]]
-            entry["station"] = f"{near} {STATIONS[near][0]}"
+            vis = [None if obs.get(t) is None else round(obs[t]) for t in loc["hourly"]["time"]]
+            # Only claim verification where the station actually reported most hours (archives have gaps).
+            if sum(v is not None for v in vis[:31]) >= 12:
+                entry["observed_vis_m"] = vis
+                entry["station"] = f"{near} {STATIONS[near][0]}"
         snap["bases"][bid] = entry
     (out / "snapshot.json").write_text(json.dumps(snap, separators=(",", ":")))
     print("wrote", out / "fog_model.json", "and", out / "snapshot.json")

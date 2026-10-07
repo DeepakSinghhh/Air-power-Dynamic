@@ -156,6 +156,7 @@ export interface AppState {
   version: number
   kpis: Kpis | null
   baseline_kpis: Kpis | null
+  reference_label: string
   envelopes: Record<string, Envelope>
   history: HistoryItem[]
 }
@@ -233,6 +234,9 @@ export interface MetModelMeta {
   train_winters: string[]
   test_winter: string
   n_train: number
+  n_fit: number
+  n_calibration: number
+  calibration_winter: string
   n_test: number
   fog_rate_test: number
   auc: number

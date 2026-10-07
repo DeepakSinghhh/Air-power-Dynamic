@@ -44,9 +44,10 @@ export function FogChart({ met, threshold, width, height, axis = false, now }: {
           ) : null
         })}
         {met.observed_vis_m?.map((v, i) =>
-          v !== null && v < 1000 ? (
-            <rect key={`o${i}`} x={x(met.times[i]) + 0.75} y={base + 2} width={bw} height={3} rx={1} fill={C.ink} />
-          ) : null,
+          v === null ? null : (
+            <rect key={`o${i}`} x={x(met.times[i]) + 0.75} y={base + 2} width={bw} height={3} rx={1}
+              fill={v < 1000 ? C.ink : C.axis} />
+          ),
         )}
         <line x1={pad.l} x2={pad.l + pw} y1={y(threshold)} y2={y(threshold)} stroke={C.ink2} strokeWidth={1} />
         {axis && (
@@ -80,6 +81,9 @@ export function FogChart({ met, threshold, width, height, axis = false, now }: {
     </div>
   )
 }
+
+/** "2025-11-15..2026-02-15" -> "winter 2025–26" */
+const winter = (range: string) => `winter ${range.slice(0, 4)}–${range.slice(14, 16)}`
 
 function windowsFor(met: MetResponse, base: string): MetWindow[] {
   return met.windows.filter((w) => w.base === base)
@@ -170,13 +174,15 @@ export function WeatherMenu() {
         </div>
         <div className="menu-row muted" style={{ fontSize: 11, gap: 12, flexWrap: 'wrap' }}>
           <span><span className="swatch" style={{ background: C.accent }} /> P(fog) per hour (faded below threshold)</span>
-          <span><span className="swatch" style={{ background: C.ink, height: 3 }} /> observed visibility &lt; 1 km</span>
+          <span><span className="swatch" style={{ background: C.ink, height: 3 }} /> observed fog (&lt; 1 km)</span>
+          <span><span className="swatch" style={{ background: C.axis, height: 3 }} /> observed clear · no tick: no report</span>
           <span>── threshold</span>
         </div>
         {meta && (
           <div className="menu-row muted" style={{ fontSize: 11, display: 'block' }}>
-            MOS model on Open-Meteo NWP, trained on {meta.n_train.toLocaleString()} METAR-hours ({meta.train_winters.length} winters),
-            tested on {meta.n_test.toLocaleString()} hours of winter {meta.test_winter.slice(0, 7)}: Brier skill{' '}
+            MOS model on Open-Meteo NWP: fitted on {meta.n_fit.toLocaleString()} METAR-hours ({meta.train_winters.map(winter).join(', ')}),
+            calibrated on {meta.n_calibration.toLocaleString()} ({winter(meta.calibration_winter)}), tested on{' '}
+            {meta.n_test.toLocaleString()} unseen hours of {winter(meta.test_winter)}: Brier skill{' '}
             <b className="ink2">{meta.brier_skill >= 0 ? '+' : ''}{(meta.brier_skill * 100).toFixed(0)}%</b> vs climatology, AUC{' '}
             <b className="ink2">{meta.auc.toFixed(2)}</b>. Fog hours detected at P≥50%:{' '}
             <b className="ink2">{fmtPct(meta['mos_at_0.5'].pod)}</b> (raw model visibility: {fmtPct(meta.raw_nwp_vis_below_1km.pod)}).

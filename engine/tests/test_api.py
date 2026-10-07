@@ -32,6 +32,9 @@ def test_propose_then_approve_commits():
     assert after["version"] == s["version"] + 1
     assert after["world"]["now"] == 120
     assert after["history"][-1]["decision"] == "approved"
+    # KPI deltas now compare with the plan before the change, not the (fog-free) manual baseline.
+    assert after["reference_label"] == "vs before last retask"
+    assert after["baseline_kpis"] == s["kpis"]
 
 
 def test_reject_and_stale_proposals():

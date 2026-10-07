@@ -30,7 +30,8 @@ from .threats import RiskField, effective_envelope
 app = FastAPI(title="VAYU-SARTHI engine", version="0.2.0")
 api = APIRouter(prefix="/api")
 LOCK = threading.Lock()
-STATE: dict = {"world": None, "plan": None, "baseline_kpis": None, "version": 0, "history": [],
+STATE: dict = {"world": None, "plan": None, "baseline_kpis": None, "reference_label": "vs manual-style plan",
+               "version": 0, "history": [],
                "proposal": None, "met_live": None}
 LIVE_MET_TTL_S = 1800
 
@@ -56,6 +57,7 @@ def snapshot() -> dict:
     w, p = STATE["world"], STATE["plan"]
     return {"world": w, "plan": p, "version": STATE["version"],
             "kpis": kpis(w, p) if w and p else None, "baseline_kpis": STATE["baseline_kpis"],
+            "reference_label": STATE["reference_label"],
             "envelopes": envelopes(w) if w else {}, "history": STATE["history"]}
 
 
@@ -93,7 +95,8 @@ def make_plan(time_limit: float = 10.0) -> dict:
         cands = candidates.build(world)
         base = greedy.solve(world, cands)
         plan = optimizer.solve(world, cands, hint=base, time_limit=time_limit)
-        STATE.update(plan=plan, baseline_kpis=kpis(world, base), proposal=None, version=STATE["version"] + 1)
+        STATE.update(plan=plan, baseline_kpis=kpis(world, base), reference_label="vs manual-style plan",
+                     proposal=None, version=STATE["version"] + 1)
         return snapshot()
 
 
@@ -172,7 +175,10 @@ def approve(pid: str) -> dict:
                                  "aircraft_changes": res.diff.aircraft_changes,
                                  "naive_aircraft_changes": res.naive_diff.aircraft_changes if res.naive_diff else None,
                                  "decision": "approved"})
-        STATE.update(world=res.world, plan=res.plan, proposal=None, version=STATE["version"] + 1)
+        # The manual-style baseline never faced this event; compare with the plan before the change instead.
+        before = kpis(STATE["world"], STATE["plan"])
+        STATE.update(world=res.world, plan=res.plan, proposal=None, version=STATE["version"] + 1,
+                     baseline_kpis=before, reference_label="vs before last retask")
         return snapshot()
 
 

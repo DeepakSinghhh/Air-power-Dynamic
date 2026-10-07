@@ -211,7 +211,7 @@ export function useView() {
       kpis: proposal?.kpis ?? app.kpis,
       // KPI deltas: a proposal is compared with the committed plan, a plan with the manual-style baseline.
       reference: proposal ? app.kpis : app.baseline_kpis,
-      referenceLabel: proposal ? 'vs current plan' : 'vs manual-style plan',
+      referenceLabel: proposal ? 'vs current plan' : app.reference_label,
       previous: proposal ? app.plan : null,
       proposal,
     }

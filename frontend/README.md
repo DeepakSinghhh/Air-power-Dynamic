@@ -17,7 +17,9 @@ cd frontend && npm run dev                         # terminal 2
 ```
 
 Checks: `npm run typecheck`, `npm run build`, and with the server running `npm run e2e`
-(Playwright: plan → select → inject fog → approve → drop SAM → playback, fails on any console error).
+(Playwright: plan → fog forecast → propose closures → approve → no duplicate closures → threshold change →
+time-sensitive target → drop SAM + threat surface → base fog card → playback; fails on any console error and
+saves a failure screenshot).
 
 ## Screens
 
@@ -39,6 +41,14 @@ Checks: `npm run typecheck`, `npm run build`, and with the server running `npm r
 - NOW line (missions launched before it are frozen), draggable view-time cursor that drives the map, play/speed, zoom.
 - Pending retask: old sorties dashed, new ones outlined green, change badges on rows.
 
+**Weather (fog forecast)**
+- *Weather* panel: P(visibility < 1 km) per base per hour from the MOS fog model. Choose the source (cached
+  real dense-fog night, works offline / live Open-Meteo) and the commander's risk threshold (≥30/50/70%), then
+  *Propose closures*, which go through the normal approve/reject flow. Already-closed windows are not re-proposed.
+- Observed METAR is shown under the bars where a nearby station reported (white = fog, grey = clear, no tick = no report).
+- Base card: larger fog chart with threshold. Timeline aircraft view: blue P(fog) cells in each base's header row.
+- Model skill on a held-out winter is printed in the panel (Brier skill +44%, AUC 0.91; fog hours detected 70% vs 26% from raw model visibility).
+
 **Retask workflow (human in the loop)**: Inject event → proposal (diff, *naive re-plan would change N*,
 KPI deltas vs current plan) → **Approve & issue** or **Reject**. Every decision is logged.
 Detail cards for missions, bases, threats and aircraft include "what-if" actions (close a base,
@@ -57,6 +67,7 @@ ground an aircraft, raise priority, cancel mission) that go through the same pro
 | `src/components/TopBar.tsx` | KPI tiles, event injection, scenario menu |
 | `src/components/SidePanel.tsx` | Proposal review, detail cards, decision log |
 | `src/components/MissionList.tsx` | Missions by priority |
+| `src/components/Weather.tsx` | Fog forecast panel and the reusable P(fog) chart |
 | `e2e/smoke.mjs` | Browser end-to-end test with screenshots |
 
 The basemap is rebuilt from Natural Earth with `python -I tools/build_basemap.py` (see that file).

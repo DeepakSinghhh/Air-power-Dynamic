@@ -61,28 +61,47 @@ def features(h: dict) -> np.ndarray:
     ])
 
 
-def fit_logistic(X: np.ndarray, y: np.ndarray, l2: float = 1.0, iters: int = 50) -> dict:
-    """L2-regularised logistic regression by IRLS (Newton). Returns standardisation + weights."""
-    mu, sd = X.mean(axis=0), X.std(axis=0)
-    sd[sd == 0] = 1.0
-    Z = np.column_stack([np.ones(len(X)), (X - mu) / sd])
+def _irls(Z: np.ndarray, y: np.ndarray, reg: np.ndarray, sw: np.ndarray, iters: int = 50) -> np.ndarray:
     w = np.zeros(Z.shape[1])
-    reg = np.full(Z.shape[1], l2)
-    reg[0] = 0.0
     for _ in range(iters):
         p = 1 / (1 + np.exp(-np.clip(Z @ w, -30, 30)))
-        g = Z.T @ (p - y) + reg * w
-        H = (Z * (p * (1 - p))[:, None]).T @ Z + np.diag(reg)
+        g = Z.T @ (sw * (p - y)) + reg * w
+        H = (Z * (sw * p * (1 - p))[:, None]).T @ Z + np.diag(reg)
         step = np.linalg.solve(H, g)
         w -= step
         if np.max(np.abs(step)) < 1e-8:
             break
+    return w
+
+
+def fit_logistic(X: np.ndarray, y: np.ndarray, l2: float = 1.0, iters: int = 50,
+                 sample_weight: np.ndarray | None = None) -> dict:
+    """L2-regularised logistic regression by IRLS (Newton). Returns standardisation + weights."""
+    mu, sd = X.mean(axis=0), X.std(axis=0)
+    sd[sd == 0] = 1.0
+    Z = np.column_stack([np.ones(len(X)), (X - mu) / sd])
+    reg = np.full(Z.shape[1], l2)
+    reg[0] = 0.0
+    sw = np.ones(len(y)) if sample_weight is None else sample_weight
+    w = _irls(Z, y, reg, sw, iters)
     return {"features": FEATURES, "mean": mu.tolist(), "std": sd.tolist(), "weights": w.tolist()}
+
+
+def calibrate(model: dict, X: np.ndarray, y: np.ndarray) -> dict:
+    """Platt recalibration on a later, held-apart period: p' = sigmoid(a * logit(p) + b)."""
+    p = np.clip(predict({**model, "calibration": None}, X), 1e-6, 1 - 1e-6)
+    Z = np.column_stack([np.ones(len(p)), np.log(p / (1 - p))])
+    b, a = _irls(Z, y, np.zeros(2), np.ones(len(y)))
+    return {**model, "calibration": {"a": float(a), "b": float(b)}}
 
 
 def predict(model: dict, X: np.ndarray) -> np.ndarray:
     Z = np.column_stack([np.ones(len(X)), (X - np.array(model["mean"])) / np.array(model["std"])])
     p = 1 / (1 + np.exp(-np.clip(Z @ np.array(model["weights"]), -30, 30)))
+    cal = model.get("calibration")
+    if cal:
+        q = np.clip(p, 1e-6, 1 - 1e-6)
+        p = 1 / (1 + np.exp(-(cal["a"] * np.log(q / (1 - q)) + cal["b"])))
     return np.where(np.isnan(p), 0.0, p)
 
 

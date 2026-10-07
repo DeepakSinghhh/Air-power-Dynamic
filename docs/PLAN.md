@@ -287,16 +287,22 @@ three hours ahead, plus a retask diff, is the strongest "predictive analytics" s
   forecast fields maps them to P(visibility < 1 km). The fields are RH, a high-RH hinge, dew-point
   depression, wind, low and total cloud, hour of day, 3-hour RH trend, and a calm-and-saturated flag.
   Labels are **observed METAR visibility** at 12 fog-belt airfields (IEM archive).
-- **Honest evaluation:** train on {TRAIN}, test on the **held-out winter {TEST}**
-  ({NTEST} hours, fog in {FOGRATE} of them). Results:
-  - Brier skill **{BSS}** vs climatology
-  - AUC **{AUC}**
-  - at P ≥ 50%: probability of detection {POD}, false-alarm ratio {FAR}
-  - raw model visibility < 1 km detected only **{RAWPOD}** of fog hours
+- **Honest evaluation:** train on winters 2022–23 and 2023–24 (equal weight per winter), recalibrate on 2024–25, test on the
+  **held-out winter 2025–26**
+  (9,427 hours, fog in 25% of them). Results:
+  - Brier skill **+44%** vs climatology
+  - AUC **0.91**
+  - at P ≥ 50%: probability of detection 70%, false-alarm ratio 30%
+  - raw model visibility < 1 km detected only **26%** of fog hours
+- **Calibration, honestly:** an unusually foggy 2023–24 winter would have inflated the base rate, so the
+  winters get equal weight and probabilities are recalibrated on a later winter. Above 50% the forecasts
+  are close to observed frequencies (65% → 65%, 85% → 83%); low probabilities still run about 0.1 high.
+- **Verification is only claimed where data exists.** METAR archives have gaps (on the demo night Chandigarh,
+  Agra and Jodhpur sent no reports), so observations are shown only for stations reporting most hours.
 - **Probability, not a yes/no.** The commander sets the risk threshold (30 / 50 / 70%), and the forecast becomes
   proposed base closures that go through the normal proposal → approve flow.
-- **Offline:** the demo uses a cached real dense-fog night (**{DEMO}**, from the held-out winter), with the
-  observed METAR overlaid for verification. Live mode calls Open-Meteo for the next ~30 h.
+- **Offline:** the demo uses a cached real dense-fog night (**2026-02-03**, from the held-out winter). Hindan's
+  chart overlays Delhi IGI's observed METAR (97 m visibility from midnight to 09:00), which verifies the forecast. Live mode calls Open-Meteo for the next ~30 h.
 
 ### 6.7 Explainability (built: `explain.py`)
 - **Reason codes** for each screened-out option, aggregated per mission.
@@ -353,9 +359,10 @@ Run everything with `./run.sh`, then open http://127.0.0.1:8000. It works offlin
 | COP map | Offline basemap with India's boundary as officially depicted; bases by readiness status; SAM envelopes with intel-age halos; optional threat surface; routes and objectives by mission family; tanker tracks; aircraft moving along routes with the timeline cursor; click-to-drop a pop-up SAM |
 | Sync matrix | *Missions* view (TOT windows, packages, TOT diamonds, SEAD → strike arrows) and *Aircraft* view (lanes by base, turnaround, closures, U/S); NOW line + draggable view time + playback |
 | Retask review | Inject an event (6 context-aware presets or map tools) → proposal with diff, **"naive re-plan would change N"**, KPI deltas → Approve / Reject → decision log |
+| Weather | Fog forecast panel: per-base hourly P(fog) from the MOS model, cached dense-fog night or live Open-Meteo, commander's risk threshold → proposed closures; observed METAR overlay where available; base-card chart; P(fog) cells on the timeline |
 | Detail cards | Mission (package, crews, "why not planned", raise priority, cancel), base (readiness, stocks, close it), threat (intel age, routes in reach), aircraft (P(serviceable), sorties, ground it) |
 
-**Engine (`engine/`, Python + OR-Tools CP-SAT, 15 passing tests):**
+**Engine (`engine/`, Python + OR-Tools CP-SAT, 21 passing tests):**
 
 | Module | Status |
 |---|---|
@@ -369,6 +376,7 @@ Run everything with `./run.sh`, then open http://127.0.0.1:8000. It works offlin
 | `retask.py`, `events.py`, `presets.py` | Events (closure, aircraft/crew down, pop-up threat, new/cancelled mission, priority change, stock loss) → retask → diff |
 | `explain.py` | "Why not?" explanations |
 | `kpi.py` | KPIs, Monte Carlo stress test |
+| `met.py` + `tools/build_fog_model.py` | Fog MOS model trained on real METARs; held-out Brier skill +44%, AUC 0.91 (6.6.1) |
 | `validate.py` | Independent constraint checker. Every plan in the tests and benchmark must pass it. |
 | `api.py` | FastAPI under `/api`: state, plan, hazard grid, presets, propose / approve / reject, stress. Serves the built UI. |
 
@@ -409,7 +417,7 @@ two remaining *visible* differentiators (predictive fog, COA comparison), then t
 |---|---|---|
 | Oct 7 | ✅ Engine + COP map + sync matrix + human-in-the-loop retask (this repo) | - |
 | Oct 8–9 | Everyone runs `./run.sh` and clicks through §11. Mentor/officer review of vocabulary and scenario realism. | All |
-| Oct 9–12 | **Predictive fog:** Open-Meteo forecast (visibility, low cloud, humidity, wind) per base → fog probability → "Met forecast" event with probability; cached JSON snapshot for offline. | Geo/Met + ML |
+| Oct 7 | ✅ **Predictive fog:** MOS model on Open-Meteo NWP trained on real METARs (held-out Brier skill +44%), Weather panel, closures with probability, offline snapshot | - |
 | Oct 9–12 | **Stress-test panel** in the UI (`/api/stress` exists): p05/p50/p95 band, most fragile missions, most relied-on assets. | Frontend + Backend |
 | Oct 10–13 | **3 COAs** (Max-effect / Min-risk / Max-reserve) via objective weights; side-by-side compare and pick. | Optimisation + Frontend |
 | Oct 12–13 | **HADR scenario** (relief airlift to a flood district) as a second seed, for the dual-use / impact slide. | Optimisation |
@@ -468,10 +476,12 @@ Steps marked ▶ work in the current build (`./run.sh`). The others need the 9.0
    lights up on the map, its SEAD arrow shows in the sync matrix, and the package and crews appear in the card.
 3. ▶ **(1:45) Why not?** Click an unplanned mission (hollow marker): *"Least-risk route 33% vs acceptable 30%;
    a SEAD package would open options."*
-4. ▶ **(2:30) Fog.** Inject event → *Fog forecast: <busiest base>*. In ~2 s the proposal card shows
-   "N aircraft reassigned (naive re-plan: ~3× more on average)". Switch the timeline to *Aircraft*: the closure is hatched
-   across the base, with old sorties dashed and new ones outlined. **Approve & issue changes.**
-   *(Sprint: drive this from the Open-Meteo fog probability instead of a preset.)*
+4. ▶ **(2:30) Fog, predicted.** Open *Weather*. "This is a real night: 3 Feb 2026, from a winter the model
+   never saw." Point at Hindan, where Delhi airport's observed fog (white ticks) sits under the forecast bars. "Raw
+   model visibility catches about a quarter of fog hours; our model catches 70%." Pick the risk threshold, then
+   *Propose closures*. The proposal shows how much less churn there is than a naive re-plan. Switch the timeline to
+   *Aircraft*: the closures are hatched across each base. **Approve & issue changes.** The KPI deltas now read
+   "vs before last retask": the honest cost of the weather.
 5. ▶ **(3:30) Pop-up SAM.** Inject event → *Drop a medium-range SAM*, then click on a strike's route. Routes bend
    around it (old route dashed). Toggle *Threat surface* to show why.
 6. ▶ **(4:30) Time-sensitive target, P10.** Inject event → *Time-sensitive target*. The system adds a pair and

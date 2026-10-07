@@ -38,6 +38,7 @@ const openWeather = async () => {
   await page.waitForSelector('.wx-row', { timeout: 60000 })
 }
 
+async function run() {
 await page.goto(URL)
 await page.waitForSelector('.tl-content', { timeout: 180000 })
 await idle()
@@ -115,7 +116,19 @@ await page.waitForTimeout(2500)
 await page.click('text=❚❚ Pause')
 step(`airborne: ${await page.locator('.view-clock').textContent()}`)
 await shot('09-playback')
+}
 
+try {
+  await run()
+} catch (e) {
+  console.error('FAILED:', e?.message?.split('\n')[0] ?? e)
+  const toast = await page.locator('.toast').textContent({ timeout: 1000 }).catch(() => null)
+  if (toast) console.error('toast:', toast)
+  await page.screenshot({ path: `${OUT}/failure.png` }).catch(() => {})
+  console.error(`failure screenshot: ${OUT}/failure.png`)
+  await browser.close()
+  process.exit(1)
+}
 await browser.close()
 if (errors.length) {
   console.error('Console errors:\n' + errors.join('\n'))

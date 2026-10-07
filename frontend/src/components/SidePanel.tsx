@@ -295,7 +295,7 @@ function BaseFog({ baseId }: { baseId: string }) {
           : ` · stays below ${fmtPct(threshold)}`}
       </p>
       <p className="muted" style={{ fontSize: 11 }}>
-        {source}{met.observed_station ? ` · white ticks: observed fog at ${met.observed_station}` : ''}
+        {source}{met.observed_station ? ` · ticks below: observed at ${met.observed_station} (white = fog, grey = clear, none = no report)` : ' · no nearby METAR to verify against'}
       </p>
     </>
   )

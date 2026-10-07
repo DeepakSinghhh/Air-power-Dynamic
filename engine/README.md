@@ -9,7 +9,7 @@ pip install -e ".[api,dev]"
 
 python -m sarthi.demo                 # plan a 24 h day, then fog / pop-up SAM / MX alert / TST retasks
 python -m sarthi.benchmark --seeds 20 # optimiser vs greedy manual-planner baseline
-python -m pytest -q                   # 15 tests, incl. independent constraint validation + API flow
+python -m pytest -q                   # 21 tests, incl. constraint validation, API flow, fog model
 uvicorn sarthi.api:app --reload       # REST API under /api (docs at /docs); serves the UI if built
 ```
 
@@ -27,6 +27,8 @@ uvicorn sarthi.api:app --reload       # REST API under /api (docs at /docs); ser
 | `kpi.py` | KPIs and Monte Carlo stress test |
 | `validate.py` | Independent constraint checker |
 | `presets.py` | Context-aware demo events built from the current plan |
+| `met.py` | Fog forecasting: MOS logistic model on Open-Meteo NWP → P(vis < 1 km) per base-hour → closure events |
+| `data/met/` | Trained fog model (with held-out skill scores) and a cached real dense-fog night |
 | `api.py` | FastAPI: state, plan, hazard grid, presets, propose / approve / reject retask |
 | `data/india.json` | India outline (Natural Earth, India point of view) for scenario geography |
 
@@ -45,5 +47,11 @@ Scenario geography is boundary-consistent: notional adversary sites are always a
 India's boundary, CAP stations are inside it, and CAS points are on the Indian side near the border.
 Routes are any-angle: Dijkstra on the threat grid, then string pulling that keeps a straight leg only
 where it costs no more (distance + threat exposure) than the grid path and avoids restricted airspace.
+
+Fog forecasting: `GET /api/met?source=snapshot|live&threshold=0.5` returns per-base hourly P(fog) and
+the closures it implies. Retrain with `python -I tools/build_fog_model.py <cache-dir>`. It labels with IEM METAR
+archives and uses Open-Meteo historical forecasts as features. It fits on two winters, recalibrates on a third and
+tests on the latest. Held-out skill: Brier skill +44% vs climatology, AUC 0.91. Downloads are cached and retried,
+because Open-Meteo's free tier is rate-limited per IP.
 
 See `../docs/PLAN.md` for the full design and roadmap.
