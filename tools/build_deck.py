@@ -184,8 +184,9 @@ def slide_title(prs):
         ("PS category", "Software", 0.4),
         ("Team ID", "________", 0.4),
         ("Team name", "________", 0.4),
+        ("Demo video", "________", 0.4),
     ]
-    y = 3.2
+    y = 3.05
     for k, v, h in rows:
         text(s, 0.6, y, 2.3, h, k, size=12, color=MUTED)
         text(s, 2.9, y, 4.2, h, v, size=13, bold=True)
