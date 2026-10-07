@@ -76,3 +76,22 @@ def test_coa_compare_adopt_and_intent_persists():
     assert nxt["world"]["intent"]["name"] == "Min risk"
     # COAs computed for an older plan cannot be adopted.
     assert client.post("/api/coa/defend/propose").status_code == 409
+
+
+def test_robustness_spares_proposal_and_policy_persists():
+    s = _planned()
+    r = client.get("/api/robustness?runs=500").json()
+    assert r["hardened"] and r["hardened"]["spares"] > 0
+    assert r["hardened"]["mean"] >= r["current"]["mean"]
+    assert sum(r["current"]["hist"]) == 500
+    prop = client.post("/api/robustness/propose").json()
+    assert prop["diff"]["aircraft_changes"] == 0 and prop["diff"]["spare_changes"] > 0
+    assert client.get("/api/state").json()["version"] == s["version"]
+    after = client.post(f"/api/retask/{prop['id']}/approve").json()
+    assert after["world"]["spare_policy"] and after["kpis"]["spares"] > 0
+    assert after["kpis"]["expected_value"] >= s["kpis"]["expected_value"]
+    tst = next(p for p in client.get("/api/presets?at=0").json() if p["id"] == "tst")
+    nxt = client.post("/api/retask/propose", json={"events": tst["events"], "time_limit": 4}).json()
+    assert nxt["kpis"]["spares"] > 0  # spares survive later retasks
+    assert client.get("/api/robustness?runs=200").json()["hardened"] is None
+    assert client.post("/api/robustness/propose").status_code == 409

@@ -31,7 +31,7 @@ this repo (`engine/`):
 
 Measured against a greedy "manual planner" baseline over 20 random scenarios (33–39 missions,
 96 aircraft, ~160 crews): **+12.4 pts priority-weighted mission fulfilment (85.1% → 97.5%)
-and +15.4 pts expected mission value**. Every plan passes an independent constraint checker.
+and +13.5 pts expected mission value (65.3% → 78.8%)**. Every plan passes an independent constraint checker.
 The commander also sees the same situation planned under **three intents** (Max effect / Min risk /
 Defensive posture) side by side in ~6 s, with each trade spelled out: *"Min risk gives up 17.4 pts of
 effect (6 missions); in return it cuts expected losses 70%…"*.
@@ -97,7 +97,7 @@ Guidance & objectives -> Target development -> Weaponeering & allocation -> ATO/
 ### 2.3 Success metrics (use these words on every slide)
 
 - **Time-to-plan / time-to-retask** (hours → seconds)
-- **Priority-weighted mission fulfilment** and **expected mission value** (which also accounts for serviceability and attrition risk)
+- **Priority-weighted mission fulfilment** and **expected mission value** (what is expected on the day: serviceability with ground spares, tanker availability, SEAD before strike, losses before the target)
 - **Plan stability**: sorties changed per retask
 - **Risk exposure**: mean and max sortie loss probability
 - **Resource efficiency**: sorties used, tanker sorties, alert reserve maintained
@@ -146,7 +146,7 @@ plans and retasking options in seconds, for a commander to approve.
 | Explainability | "AI says so" | Reason codes on every rejected option, plus counterfactual hints ("risk 33% vs 30% → add SEAD") |
 | Time awareness | Static threat circles | **Intel-age inflation**: a mobile SAM's envelope grows with time since it was last seen, and its lethality spreads out |
 | Options | One answer | **Three courses of action from commander's intent**, each the least-disruptive realisation of that intent, with the trade in one plain sentence |
-| Robustness | One plan, no confidence | **Monte Carlo stress test** (p05/p50/p95 fulfilment) and single points of failure |
+| Robustness | One plan, no confidence | **Monte Carlo execution** with cascades (tanker no-show, SEAD lost → strike aborts): p05/p50/p95, what fails and why, single points of failure with a one-click *what if?*, and **ground spares** from idle aircraft (+3 pts on a bad day, zero flying changes) |
 | Prediction | Charts | Predictions **feed the optimiser** (fog closure windows, maintenance risk, fatigue windows), so retasking is proactive |
 | Deployability | Cloud + public LLM API | **Air-gapped**: offline maps, local open-weight LLM, DDIL edge nodes, audit trail, human approval |
 | Dual-use | Combat only | Same engine plans **HADR / logistics airlift** (fits the Transportation & Logistics theme) |
@@ -315,10 +315,42 @@ three hours ahead, plus a retask diff, is the strongest "predictive analytics" s
 - **Next:** CP-SAT assumption literals to extract a *minimal set of constraints* blocking a mission
   (an unsat core), and "what would it take" queries such as re-solving with +1 tanker or risk ceiling +5%.
 
-### 6.8 Robustness stress test (built: `kpi.stress_test`)
-Execute the plan 2,000 times with random unserviceability and attrition. Report the p05/p50/p95
-fulfilment band, the most fragile missions and the most relied-on assets. **Next:** a robust mode that
-adds spare aircraft for high-priority packages when p05 is too low.
+### 6.8 Robustness and ground spares (built: `robust.py`)
+**One success model.** A planned mission succeeds only if every package slot launches with a mission-capable
+aircraft (P(serviceable) from the maintenance model; a ground spare can replace an unserviceable primary), every
+aircraft reaches the target (the ingress half of its two-way route risk: √(1 − risk)), enough tankers turn up for the
+receivers that need fuel, and, for a strike, its SEAD succeeded. The same model gives the analytic **Expected
+value** KPI and the 2,000-run Monte Carlo spread, so the two agree (tested to within 1 pt).
+
+**What the panel shows.**
+- The distribution of mission success over simulated days, with p05/p50/p95.
+- The most fragile missions, with the *first thing that went wrong*: "STK-05 fails 73% of days: its SEAD failed 52% ·
+  U/S at start-up 14% · lost before target 7%".
+- **Single points of failure:** assets whose loss from now (no replanning) fails the most value, cascades included,
+  e.g. "HLW-SU30-02 → STK-01 (P10), STK-10 (P9), DCA-05 (P9): −16.8 pts". **What if?** turns this into a normal
+  retask proposal, so the commander sees how the engine recovers.
+
+**Ground spares.** A greedy post-pass holds idle aircraft as spares where they add the most expected value. It
+computes the exact marginal gain (Poisson-binomial over unserviceable primaries vs serviceable spares, weighted by the
+mission and the strikes that depend on it). A spare must:
+- match a package element (same base and type, so same route and timing) and be a feasible pair at the planned TOT;
+- be booked for the whole sortie, so the plan stays feasible if it launches;
+- carry loaded weapons, which come out of stock;
+- count against the alert reserve while it stands by during start-up.
+
+It is purely additive (no mission, flying aircraft, crew or TOT changes) and takes ~0.07 s. Once approved,
+`World.spare_policy` re-chooses spares after every retask. When a primary goes U/S, the briefed spare is the cheapest
+substitute in the churn objective, and the diff reads "ground spare X steps in for Y".
+
+| 8 scenarios, mean | Without spares | With ground spares |
+|---|---|---|
+| Expected value (mean simulated day) | 77.8% | **80.2%** |
+| Bad day (p05) | 66.9% | **69.9%** |
+| Worst single point of failure | −17.4 pts | **−15.4 pts** |
+| Spares held / missions covered | - | 19.6 / 16.4 (all from idle aircraft) |
+| Flying aircraft, crews or TOTs changed | - | **0** |
+
+**Next:** spares for tankers, and a robust objective that prefers plans with a better p05 when the commander asks for it.
 
 ### 6.9 Courses of action (built: `coa.py`, `Intent` in `models.py`)
 Commander's intent is part of the world state (`World.intent`), so every constraint, the validator and
@@ -382,10 +414,11 @@ Run everything with `./run.sh`, then open http://127.0.0.1:8000. It works offlin
 | Sync matrix | *Missions* view (TOT windows, packages, TOT diamonds, SEAD → strike arrows) and *Aircraft* view (lanes by base, turnaround, closures, U/S); NOW line + draggable view time + playback |
 | Retask review | Inject an event (6 context-aware presets or map tools) → proposal with diff, **"naive re-plan would change N"**, KPI deltas → Approve / Reject → decision log |
 | Weather | Fog forecast panel: per-base hourly P(fog) from the MOS model, cached dense-fog night or live Open-Meteo, commander's risk threshold → proposed closures; observed METAR overlay where available; base-card chart; P(fog) cells on the timeline |
+| Robustness | 2,000 simulated executions (no replanning): distribution current vs with ground spares, p05/p50/p95, what fails most and why, single points of failure with **What if?** → retask proposal; **Propose ground spares** → approve; spares drawn as dashed bars in the aircraft view |
 | Courses of action | Intent chip in the top bar → three COAs solved in parallel (~6 s): losses-vs-fulfilment scatter, one computed trade sentence per COA, table (fulfilment, expected value, losses, worst sortie risk, sorties, guided weapons, fighters on the ground, p05 robustness) → **Adopt** = a normal proposal |
 | Detail cards | Mission (package, crews, "why not planned", raise priority, cancel), base (readiness, stocks, close it), threat (intel age, routes in reach), aircraft (P(serviceable), sorties, ground it) |
 
-**Engine (`engine/`, Python + OR-Tools CP-SAT, 23 passing tests):**
+**Engine (`engine/`, Python + OR-Tools CP-SAT, 26 passing tests):**
 
 | Module | Status |
 |---|---|
@@ -398,18 +431,19 @@ Run everything with `./run.sh`, then open http://127.0.0.1:8000. It works offlin
 | `greedy.py` | Manual-planner baseline under identical constraints |
 | `retask.py`, `events.py`, `presets.py` | Events (closure, aircraft/crew down, pop-up threat, new/cancelled mission, priority change, stock loss) → retask → diff |
 | `explain.py` | "Why not?" explanations |
-| `kpi.py` | KPIs, Monte Carlo stress test, COA trade-off metrics |
+| `kpi.py` | KPIs, COA trade-off metrics |
+| `robust.py` | Mission success model (serviceability with spares, tankers, SEAD → strike, ingress risk), Monte Carlo execution, single points of failure, ground spares (6.8) |
 | `coa.py` | Three courses of action from commander's intent, solved in parallel as least-disruptive retasks (6.9) |
 | `met.py` + `tools/build_fog_model.py` | Fog MOS model trained on real METARs; held-out Brier skill +44%, AUC 0.91 (6.6.1) |
 | `validate.py` | Independent constraint checker. Every plan in the tests and benchmark must pass it. |
-| `api.py` | FastAPI under `/api`: state, plan, hazard grid, fog forecast, presets, propose / approve / reject, COAs (compare / adopt), stress. Serves the built UI. |
+| `api.py` | FastAPI under `/api`: state, plan, hazard grid, fog forecast, presets, propose / approve / reject, COAs (compare / adopt), robustness (simulate / propose spares). Serves the built UI. |
 
 **Measured results** (laptop-class CPU, 8 threads, 10 s limit):
 
 | | Greedy "manual planner" | VAYU-SARTHI |
 |---|---|---|
 | Priority-weighted fulfilment (20 scenarios) | 85.1% | **97.5%** |
-| Expected mission value (after serviceability & attrition) | 62.0% | **77.4%** |
+| Expected mission value (serviceability, tankers, SEAD → strike, losses before target) | 65.3% | **78.8%** |
 | Mean sortie risk | 7.2% | 7.7% (flies more of the hard missions) |
 | Plan time, 33–39 missions | ms (but worse plan) | 4–10 s |
 
@@ -447,15 +481,15 @@ aircraft. All 24 COA plans pass the independent validator under their own intent
 
 ### 9.0 Sprint to 20 October
 
-The engine, COP map, sync matrix, retask review, predictive fog and COA comparison already work (§8), so
-the rest of the sprint goes on the stress-test panel, the HADR scenario and the pitch.
+The engine, COP map, sync matrix, retask review, predictive fog, COA comparison and robustness panel already
+work (§8), so the rest of the sprint goes on the HADR scenario and the pitch.
 
 | Dates | Deliverable | Owner |
 |---|---|---|
 | Oct 7 | ✅ Engine + COP map + sync matrix + human-in-the-loop retask (this repo) | - |
 | Oct 8–9 | Everyone runs `./run.sh` and clicks through §11. Mentor/officer review of vocabulary and scenario realism. | All |
 | Oct 7 | ✅ **Predictive fog:** MOS model on Open-Meteo NWP trained on real METARs (held-out Brier skill +44%), Weather panel, closures with probability, offline snapshot | - |
-| Oct 9–12 | **Stress-test panel** in the UI (`/api/stress` exists): p05/p50/p95 band, most fragile missions, most relied-on assets. | Frontend + Backend |
+| Oct 7 | ✅ **Robustness panel**: one success model for the KPI and the Monte Carlo spread, fragile missions with causes, single points of failure + *what if?*, ground spares from idle aircraft | - |
 | Oct 7 | ✅ **3 COAs** from commander's intent (Max effect / Min risk / Defensive posture), solved in parallel; scatter + trade sentences + table; adopt → approve; the intent persists | - |
 | Oct 12–13 | **HADR scenario** (relief airlift to a flood district) as a second seed, for the dual-use / impact slide. | Optimisation |
 | Oct 14–15 | Deck (§12) with real screenshots and the §8 benchmark tables. Rehearse §11. | Pitch |
@@ -474,7 +508,7 @@ Work demo-first: every week ends with something visibly better on screen.
 | 4 | Oct 28–Nov 3 | ✅ COA generator (3 intents). Remaining: custom commander's-intent sliders, Pareto sweep. "Why not?" panel. Readiness board with freshness badges. |
 | 5 | Nov 4–10 | Copilot (local LLM, tool-calling). HADR scenario (relief airlift to flood/earthquake districts). Auto-resupply missions. |
 | 6 | Nov 11–17 | DDIL demo: 2 nodes (HQ + base) with NATS leaf node. Cut the link, keep planning locally, reconnect and merge. RBAC roles. |
-| 7 | Nov 18–24 | Scale: LNS retask at 150+ missions. Terrain masking (stretch). Stress-test UI. Performance tuning. |
+| 7 | Nov 18–24 | Scale: LNS retask at 150+ missions. Terrain masking (stretch). Robust objective (p05). Performance tuning. |
 | 8 | Nov 25–Dec 1 | **Feature freeze.** Rehearse the demo 10×. Failure drills (no Wi-Fi, solver timeout, laptop swap). Video. Final deck. |
 
 ### Team roles (6)
@@ -521,14 +555,18 @@ Steps marked ▶ work in the current build (`./run.sh`). The others need the 9.0
    "vs before last retask": the honest cost of the weather.
 5. ▶ **(3:30) Pop-up SAM.** Inject event → *Drop a medium-range SAM*, then click on a strike's route. Routes bend
    around it (old route dashed). Toggle *Threat surface* to show why.
-6. ▶ **(4:30) Time-sensitive target, P10.** Inject event → *Time-sensitive target*. The system adds a pair and
+6. ▶ **(4:15) Time-sensitive target, P10.** Inject event → *Time-sensitive target*. The system adds a pair and
    leaves almost everything else untouched. Press ▶ Play and watch the package fly.
-7. ▶ **(5:30) COAs.** Click the *Intent: Max effect · COAs* chip. In ~6 s three plans for the same situation appear:
+7. ▶ **(5:00) COAs.** Click the *Intent: Max effect · COAs* chip. In ~6 s three plans for the same situation appear:
    the scatter shows effect against expected losses, and one sentence states each trade (*"Min risk gives up 17.4 pts
    of effect (6 missions); in return it cuts expected losses 70%…"*). "The machine does not pick the intent. You do."
    **Adopt** Min risk → it is just another proposal (13 aircraft reassigned) → **Approve**. The chip now reads
    *Min risk*, and later retasks respect it.
-8. **(6:15) Same engine, HADR.** Flood-relief airlift scenario *(sprint)*. Close on the numbers slide (§8).
+8. ▶ **(5:45) A bad day.** *Robustness ▸* runs the plan through 2,000 simulated days. "On a bad day (p05) this plan
+   delivers 68%, and one Su-30 carries 17 points of it." *Propose ground spares*: about 25 idle aircraft held as spares,
+   **zero** flying changes, and the bad day improves (the panel shows both distributions). Approve, then **What if?** on
+   that aircraft: "ground spare HLW-SU30-03 steps in for HLW-SU30-02".
+9. **(6:30) Same engine, HADR.** Flood-relief airlift scenario *(sprint)*. Close on the numbers slide (§8).
 
 ---
 

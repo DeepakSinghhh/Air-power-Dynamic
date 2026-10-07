@@ -143,3 +143,46 @@ def test_coas_trade_off_and_respect_their_intents(planned):
     w_def = res["defend"][0]
     assert not any(w_def.deferred(w_def.missions[m]) for m in defend.plan.assignments)
     assert defend.metrics["munitions_total"] <= eff.metrics["munitions_total"]
+
+
+def test_success_model_and_ground_spares(planned):
+    from sarthi import robust
+    world, cands, _, plan = planned
+    sim = robust.simulate(world, plan, runs=4000)
+    assert abs(sim["mean"] - kpis(world, plan)["expected_value"]) < 0.01  # analytic == Monte Carlo
+    w = world.model_copy(deep=True)
+    w.spare_policy = True
+    hard = robust.add_spares(w, plan, cands)
+    assert validate(w, hard, cands) == []
+    from sarthi.retask import diff_plans
+    d = diff_plans(w, plan, hard)
+    assert d.aircraft_changes == 0 and d.crew_changes == 0 and d.tot_shifts == 0 and d.spare_changes > 0
+    for a in hard.assignments.values():
+        elements = {(s.base, w.aircraft[s.tail].type) for s in a.sorties}
+        assert all((s.base, w.aircraft[s.tail].type) in elements for s in a.spares)
+    assert robust.expected_value(w, hard) > robust.expected_value(world, plan)
+    assert robust.simulate(w, hard)["p05"] >= sim["p05"]
+    # Losing a SEAD aircraft also loses the strike that depends on it.
+    for sp in sim["single_points"]:
+        lost = {m.split(" ")[0] for m in sp["missions"]}
+        for mid in lost:
+            for dep in (m for m in world.missions.values() if m.depends_on == mid and m.id in plan.assignments):
+                assert dep.id in lost
+
+
+def test_ground_spare_steps_in_for_unserviceable_primary(planned):
+    from sarthi import robust
+    world, cands, _, plan = planned
+    w = world.model_copy(deep=True)
+    w.spare_policy = True
+    hard = robust.add_spares(w, plan, cands)
+    mid, a = next((m, a) for m, a in sorted(hard.assignments.items(), key=lambda kv: kv[1].tot)
+                  if a.spares and min(s.launch for s in a.sorties) > 200)
+    spare = a.spares[0]
+    primary = next(s for s in a.sorties if s.base == spare.base
+                   and w.aircraft[s.tail].type == w.aircraft[spare.tail].type)
+    res = retask(w, hard, [AircraftDown(at=min(s.launch for s in a.sorties) - 60, tails=[primary.tail])], 8)
+    new = res.plan.assignments[mid]
+    assert spare.tail in {s.tail for s in new.sorties}
+    assert validate(res.world, res.plan, candidates.build(res.world),
+                    optimizer.frozen_missions(res.world, res.plan)) == []

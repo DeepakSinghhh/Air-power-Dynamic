@@ -52,10 +52,17 @@ function DiffPanel({ view }: { view: View }) {
         <h2>{label}</h2>
         {p.notes.map((n, i) => <p key={i} className="ink2" style={{ fontSize: 12 }}>{n}</p>)}
         <div className="stat-row">
-          <div className="stat">
-            <b className="num">{p.diff.aircraft_changes}</b>
-            <span>aircraft reassigned{naive ? ` (naive re-plan: ${naive.aircraft_changes})` : ''}</span>
-          </div>
+          {p.diff.aircraft_changes === 0 && p.diff.spare_changes > 0 ? (
+            <div className="stat">
+              <b className="num">{p.diff.spare_changes}</b>
+              <span>ground spares changed · 0 flying aircraft reassigned</span>
+            </div>
+          ) : (
+            <div className="stat">
+              <b className="num">{p.diff.aircraft_changes}</b>
+              <span>aircraft reassigned{naive ? ` (naive re-plan: ${naive.aircraft_changes})` : ''}</span>
+            </div>
+          )}
           <div className="stat">
             <b className="num">{p.diff.untouched_missions}</b>
             <span>missions untouched</span>
@@ -66,10 +73,17 @@ function DiffPanel({ view }: { view: View }) {
             <b className="num">{before ? fmtPct(before.priority_weighted_fulfilment) : '-'} → {fmtPct(p.kpis.priority_weighted_fulfilment)}</b>
             <span>mission fulfilment</span>
           </div>
-          <div className="stat">
-            <b className="num">{p.plan.solve_seconds.toFixed(1)} s</b>
-            <span>{p.plan.status.toLowerCase()} · {p.diff.crew_changes} crew, {p.diff.tot_shifts} TOT changes</span>
-          </div>
+          {p.diff.aircraft_changes === 0 && p.diff.spare_changes > 0 && before ? (
+            <div className="stat">
+              <b className="num">{fmtPct(before.expected_value)} → {fmtPct(p.kpis.expected_value)}</b>
+              <span>expected value on the day</span>
+            </div>
+          ) : (
+            <div className="stat">
+              <b className="num">{p.plan.solve_seconds.toFixed(1)} s</b>
+              <span>{p.plan.status.toLowerCase()} · {p.diff.crew_changes} crew, {p.diff.tot_shifts} TOT changes</span>
+            </div>
+          )}
         </div>
         <div className="btn-row">
           <button className="btn primary" disabled={!!busy} onClick={() => void approve()}>Approve &amp; issue changes</button>
@@ -188,6 +202,18 @@ function MissionCard({ view, m }: { view: View; m: Mission }) {
               ))}
             </tbody>
           </table>
+          {a.spares.length > 0 && (
+            <p className="ink2" style={{ fontSize: 12 }}>
+              Ground spare{a.spares.length > 1 ? 's' : ''}:{' '}
+              {a.spares.map((s, i) => (
+                <span key={s.tail}>
+                  {i > 0 && ', '}
+                  <a href="#" style={{ color: C.accentInk }} onClick={(e) => { e.preventDefault(); select({ kind: 'aircraft', id: s.tail }) }}>{s.tail}</a>
+                </span>
+              ))}{' '}
+              <span className="muted">· starts up with the package, launches if a primary is U/S</span>
+            </p>
+          )}
           {a.tanker_sorties.length > 0 && (
             <p className="ink2" style={{ fontSize: 12 }}>
               <span className="swatch" style={{ background: FAMILY_COLOR.support }} /> Tanker{' '}
@@ -342,8 +368,11 @@ function AircraftCard({ view, tail }: { view: View; tail: string }) {
   const a = world.aircraft[tail]
   if (!a) return <div className="empty">Unknown aircraft.</div>
   const sorties = Object.values(plan?.assignments ?? {}).flatMap((as) =>
-    [...as.sorties.map((s) => ({ s, mission: as.mission, tanker: false })), ...as.tanker_sorties.map((s) => ({ s, mission: as.mission, tanker: true }))]
-      .filter((x) => x.s.tail === tail),
+    [
+      ...as.sorties.map((s) => ({ s, mission: as.mission, tanker: false, spare: false })),
+      ...as.tanker_sorties.map((s) => ({ s, mission: as.mission, tanker: true, spare: false })),
+      ...as.spares.map((s) => ({ s, mission: as.mission, tanker: false, spare: true })),
+    ].filter((x) => x.s.tail === tail),
   ).sort((x, y) => x.s.launch - y.s.launch)
   const type = world.types[a.type]
   return (
@@ -358,9 +387,9 @@ function AircraftCard({ view, tail }: { view: View; tail: string }) {
       </dl>
       <h5>Sorties ({sorties.length})</h5>
       {sorties.length === 0 && <p className="muted">Not tasked: available capacity.</p>}
-      {sorties.map(({ s, mission, tanker }) => (
-        <div key={`${mission}${s.launch}`} style={{ cursor: 'pointer', fontSize: 12, marginBottom: 3 }} onClick={() => select({ kind: 'mission', id: mission })}>
-          <span className="num">{fmtTime(s.launch)}-{fmtTime(s.recover)}</span> · <b>{mission}</b>{tanker ? ' (tanker)' : ''}{s.crew ? <span className="muted"> · crew {s.crew.split('-').pop()}</span> : null}
+      {sorties.map(({ s, mission, tanker, spare }) => (
+        <div key={`${mission}${s.launch}${spare}`} style={{ cursor: 'pointer', fontSize: 12, marginBottom: 3 }} onClick={() => select({ kind: 'mission', id: mission })}>
+          <span className="num">{fmtTime(s.launch)}-{fmtTime(s.recover)}</span> · <b>{mission}</b>{tanker ? ' (tanker)' : ''}{spare ? ' (ground spare)' : ''}{s.crew ? <span className="muted"> · crew {s.crew.split('-').pop()}</span> : null}
         </div>
       ))}
       {a.serviceable && (

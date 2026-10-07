@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { create } from 'zustand'
 
 import { api } from './api'
-import type { AppState, CoaResponse, EngineEvent, Hazard, MetResponse, MetSource, Preset, Proposal, Selection } from './types'
+import type { AppState, CoaResponse, EngineEvent, Hazard, MetResponse, MetSource, Preset, Proposal, RobustnessResponse, Selection } from './types'
 
 export interface Layers {
   hazard: boolean
@@ -39,6 +39,8 @@ interface Store {
   metError: string | null
   coas: CoaResponse | null
   coaOpen: boolean
+  robust: RobustnessResponse | null
+  robustOpen: boolean
 
   init: () => Promise<void>
   newScenario: (seed: number) => Promise<void>
@@ -62,6 +64,10 @@ interface Store {
   setCoaOpen: (open: boolean) => void
   loadCoas: () => Promise<void>
   adoptCoa: (id: string, name: string) => Promise<void>
+  setRobustOpen: (open: boolean) => void
+  loadRobust: () => Promise<void>
+  proposeSpares: () => Promise<void>
+  whatIfLost: (tail: string) => Promise<void>
 }
 
 const PLAN_SECONDS = 10
@@ -82,7 +88,7 @@ export const useStore = create<Store>((set, get) => {
 
   const commit = (app: AppState) => {
     // Any committed change makes computed COAs stale.
-    set((s) => ({ app, proposal: null, presets: null, coas: null, viewTime: Math.max(s.viewTime, app.world.now) }))
+    set((s) => ({ app, proposal: null, presets: null, coas: null, robust: null, viewTime: Math.max(s.viewTime, app.world.now) }))
     void get().loadMet()
   }
 
@@ -110,6 +116,8 @@ export const useStore = create<Store>((set, get) => {
     metError: null,
     coas: null,
     coaOpen: false,
+    robust: null,
+    robustOpen: false,
 
     init: async () => {
       await run('Loading operational picture', async () => {
@@ -196,6 +204,24 @@ export const useStore = create<Store>((set, get) => {
     adoptCoa: async (id, name) => {
       const r = await run('Preparing proposal', () => api.coaPropose(id))
       if (r) set({ proposal: r, proposalLabel: `Adopt COA: ${name}`, coaOpen: false })
+    },
+
+    setRobustOpen: (robustOpen) => set({ robustOpen }),
+
+    loadRobust: async () => {
+      const r = await run('Simulating 2,000 executions of the plan', () => api.robustness(2000))
+      if (r) set({ robust: r })
+    },
+
+    proposeSpares: async () => {
+      const r = await run('Preparing proposal', () => api.sparesPropose())
+      if (r) set({ proposal: r, proposalLabel: 'Hold ground spares', robustOpen: false })
+    },
+
+    whatIfLost: async (tail) => {
+      set({ robustOpen: false })
+      await get().propose([{ kind: 'aircraft_down', at: eventTime(), tails: [tail], reason: 'unserviceable (what-if)' }],
+        `What if ${tail} goes unserviceable?`)
     },
 
     loadMet: async (source, threshold) => {

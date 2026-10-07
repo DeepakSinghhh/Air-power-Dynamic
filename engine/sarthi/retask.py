@@ -22,6 +22,7 @@ class PlanDiff(BaseModel):
     aircraft_changes: int = 0
     crew_changes: int = 0
     tot_shifts: int = 0
+    spare_changes: int = 0
     untouched_missions: int = 0
 
 
@@ -60,15 +61,25 @@ def diff_plans(world: World, old: Plan, new: Plan) -> PlanDiff:
         if b and not a:
             d.changes.append(MissionChange(mission=mid, priority=prio, change="ADDED", details=[
                 f"TOT {fmt_time(b.tot)}: " + ", ".join(s.tail for s in b.sorties)
-                + (f" + tanker {', '.join(b.tankers)}" if b.tankers else "")]))
+                + (f" + tanker {', '.join(b.tankers)}" if b.tankers else "")
+                + (f" + ground spare {', '.join(s.tail for s in b.spares)}" if b.spares else "")]))
             d.aircraft_changes += len(b.sorties)
+            d.spare_changes += len(b.spares)
             continue
         details = []
         ta, tb = {s.tail for s in a.sorties}, {s.tail for s in b.sorties}
+        sa, sb = {s.tail for s in a.spares}, {s.tail for s in b.spares}
+        gone = sorted(ta - tb)
+        stepped = set()
         for t in sorted(tb - ta):
-            details.append(f"+ {t}")
-        for t in sorted(ta - tb):
-            details.append(f"- {t}")
+            same = [r for r in gone if world.aircraft[r].type == world.aircraft[t].type]
+            if t in sa and same:  # the briefed, loaded spare replaces a primary
+                details.append(f"ground spare {t} steps in for {same[0]}")
+                gone.remove(same[0])
+                stepped.add(t)
+            else:
+                details.append(f"+ {t}")
+        details += [f"- {t}" for t in gone]
         d.aircraft_changes += len(tb - ta) + len(ta - tb)
         ca, cb = {s.crew for s in a.sorties}, {s.crew for s in b.sorties}
         if ca != cb:
@@ -86,6 +97,9 @@ def diff_plans(world: World, old: Plan, new: Plan) -> PlanDiff:
             details.append(f"TOT {fmt_time(a.tot)} -> {fmt_time(b.tot)}")
         if set(a.tankers) != set(b.tankers):
             details.append(f"tankers {sorted(a.tankers) or '-'} -> {sorted(b.tankers) or '-'}")
+        details += [f"+ ground spare {t}" for t in sorted(sb - sa)]
+        details += [f"- ground spare {t}" for t in sorted(sa - sb - stepped)]
+        d.spare_changes += len(sa ^ sb)
         if details:
             d.changes.append(MissionChange(mission=mid, priority=prio, change="MODIFIED", details=details))
         else:

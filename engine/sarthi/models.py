@@ -50,6 +50,7 @@ class AircraftType(BaseModel):
     payload_t: float = 0.0      # airlift payload (tonnes)
     aar_receivers: int = 0      # receivers one tanker sortie can support
     fighter: bool = False       # counts toward the base alert reserve
+    min_runway_m: int = 0       # shortest runway it can land on (0 = helicopter)
 
 
 class Aircraft(BaseModel):
@@ -110,6 +111,7 @@ class Mission(BaseModel):
     dep_lag_min: int = 5         # this TOT - dependency TOT must lie in [min, max]
     dep_lag_max: int = 30
     suppresses: list[str] = Field(default_factory=list)  # SEAD: threats it suppresses
+    runway_m: int | None = None  # landing at the objective: its runway length (0 = helicopters only)
     label: str = ""
 
 
@@ -142,6 +144,9 @@ class World(BaseModel):
     aar_extension: float = 1.5   # tanker support extends reach to radius * this
     fatigue_threshold: float = 77.0
     intent: Intent = Field(default_factory=Intent)
+    spare_policy: bool = False   # hold idle aircraft as ground spares in every plan and retask
+    scenario: str = "conflict"   # "conflict" | "hadr" (humanitarian assistance & disaster relief)
+    domestic_only: bool = False  # routes must stay inside India's boundary (no foreign overflight)
 
     def deferred(self, m: "Mission") -> bool:
         """Offensive missions the current intent defers (never planned while it stands)."""
@@ -179,6 +184,7 @@ class Assignment(BaseModel):
     sorties: list[Sortie]
     tankers: list[str] = Field(default_factory=list)
     tanker_sorties: list[Sortie] = Field(default_factory=list)  # timing + track for each tanker
+    spares: list[Sortie] = Field(default_factory=list)  # ground spares: same base/type, booked for the sortie
 
 
 class Plan(BaseModel):

@@ -196,9 +196,11 @@ def solve(world: World, cands: Candidates | None = None, baseline: Plan | None =
                 continue
             w = churn_weight(min(s.launch for s in a0.sorties) - world.now)
             kept = {s.tail for s in a0.sorties}
+            spare = {s.tail for s in a0.spares}  # already briefed and loaded: the cheapest substitute
             for p in cands.pairs.get(m.id, []):
                 v = x[m.id, p.tail]
-                obj.append((KEEP_AIRCRAFT * w if p.tail in kept else -ADD_AIRCRAFT * w) * v)
+                bonus = KEEP_AIRCRAFT * w if p.tail in kept else -ADD_AIRCRAFT * w // (4 if p.tail in spare else 1)
+                obj.append(bonus * v)
             for s in a0.sorties:
                 if s.crew and (m.id, s.crew) in y:
                     obj.append(KEEP_CREW * w * y[m.id, s.crew])
@@ -240,8 +242,11 @@ def solve(world: World, cands: Candidates | None = None, baseline: Plan | None =
             plan.assignments[m.id] = Assignment(mission=m.id, tot=t, sorties=sorties,
                                                 tankers=[tc.tail for tc in tks],
                                                 tanker_sorties=[tanker_sortie(world, tc, t) for tc in tks])
-    plan.solve_seconds = round(time.perf_counter() - t0, 3)
     plan.unassigned = explain_unassigned(world, cands, plan)
+    if world.spare_policy and plan.assignments:
+        from .robust import add_spares
+        plan = add_spares(world, plan, cands, prefer=baseline)
+    plan.solve_seconds = round(time.perf_counter() - t0, 3)
     return plan
 
 

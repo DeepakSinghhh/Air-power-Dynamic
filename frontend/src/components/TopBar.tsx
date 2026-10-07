@@ -4,6 +4,7 @@ import { useStore, useView } from '../store'
 import type { Kpis } from '../types'
 import { fmtPct, fmtTime } from '../util'
 import CoaPanel from './CoaPanel'
+import RobustPanel from './RobustPanel'
 import { WeatherMenu } from './Weather'
 
 type Better = 'up' | 'down' | 'none'
@@ -51,7 +52,7 @@ function kpiTiles(k: Kpis, ref: Kpis | null, refLabel: string) {
       deltaText={ref ? pts(k.priority_weighted_fulfilment, ref.priority_weighted_fulfilment) : undefined}
       better="up" refLabel={refLabel} />,
     <Tile key="ev" label="Expected value" value={fmtPct(k.expected_value, 1)}
-      title="Priority-weighted value after serviceability and attrition risk"
+      title="Priority-weighted value expected on the day: serviceability (with ground spares), tanker availability, SEAD before strike, losses before the target"
       delta={ref ? k.expected_value - ref.expected_value : undefined}
       deltaText={ref ? pts(k.expected_value, ref.expected_value) : undefined}
       better="up" refLabel={refLabel} />,
@@ -60,7 +61,7 @@ function kpiTiles(k: Kpis, ref: Kpis | null, refLabel: string) {
       deltaText={ref ? n(k.missions_planned, ref.missions_planned) : undefined}
       better="up" refLabel="" />,
     <Tile key="s" label="Sorties" value={`${k.sorties}`}
-      deltaText={k.tanker_sorties ? `+${k.tanker_sorties} tanker` : 'no tanker'} />,
+      deltaText={[k.tanker_sorties ? `+${k.tanker_sorties} tanker` : 'no tanker', k.spares ? `${k.spares} spares` : ''].filter(Boolean).join(' · ')} />,
     <Tile key="r" label="Mean sortie risk" value={fmtPct(k.mean_sortie_risk, 1)}
       delta={ref ? k.mean_sortie_risk - ref.mean_sortie_risk : undefined}
       deltaText={ref ? pts(k.mean_sortie_risk, ref.mean_sortie_risk) : undefined}
@@ -177,6 +178,17 @@ function IntentChip() {
   )
 }
 
+function RobustChip() {
+  const setOpen = useStore((s) => s.setRobustOpen)
+  const hasPlan = useStore((s) => !!s.app?.plan)
+  if (!hasPlan) return null
+  return (
+    <button className="robust-chip" onClick={() => setOpen(true)} title="Stress-test the plan and hold ground spares">
+      Robustness ▸
+    </button>
+  )
+}
+
 function BusyPill() {
   const busy = useStore((s) => s.busy)
   const [, tick] = useState(0)
@@ -219,11 +231,13 @@ export default function TopBar() {
       <div className="actions">
         <BusyPill />
         <IntentChip />
+        <RobustChip />
         <WeatherMenu />
         <EventMenu />
         <ScenarioMenu />
       </div>
       <CoaPanel />
+      <RobustPanel />
     </header>
   )
 }

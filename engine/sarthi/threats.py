@@ -9,12 +9,13 @@ the planner trades detour kilometres (fuel, range, time) against survivability.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 import numpy as np
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra
 
-from .geo import haversine_km
+from .geo import haversine_km, in_india
 from .models import Threat, World
 
 BETA_KM = 1500.0      # km of detour worth one unit of hazard exponent
@@ -36,6 +37,16 @@ def effective_envelope(th: Threat, now: int) -> tuple[float, float]:
     return r_eff, base_rate * (th.radius_km / r_eff) ** 2
 
 
+@lru_cache(maxsize=8)
+def _domestic_mask(area: tuple[float, float, float, float], res: float) -> np.ndarray:
+    """Grid cells inside India's boundary (routes for domestic operations must not leave it)."""
+    lat0, lat1, lon0, lon1 = area
+    lats = lat0 + np.arange(int(round((lat1 - lat0) / res)) + 1) * res
+    lons = lon0 + np.arange(int(round((lon1 - lon0) / res)) + 1) * res
+    LAT, LON = np.meshgrid(lats, lons, indexing="ij")
+    return in_india(LAT, LON)
+
+
 class RiskField:
     def __init__(self, world: World, suppress: dict[str, float] | None = None, res: float = 0.1):
         lat0, lat1, lon0, lon1 = world.area
@@ -55,7 +66,7 @@ class RiskField:
             hazard += np.where(d <= r_eff, rate, 0.0)
         self.hazard = hazard
 
-        blocked = np.zeros_like(self.LAT, dtype=bool)
+        blocked = ~_domestic_mask(world.area, res) if world.domestic_only else np.zeros_like(self.LAT, dtype=bool)
         for z in world.zones.values():
             blocked |= haversine_km(z.lat, z.lon, self.LAT, self.LON) <= z.radius_km
         self.blocked = blocked

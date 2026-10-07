@@ -18,12 +18,12 @@ from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import candidates, coa, greedy, met, optimizer
+from . import candidates, coa, greedy, met, optimizer, robust
 from .events import Event
 from .kpi import kpis, stress_test
 from .models import Plan, World
 from .presets import presets
-from .retask import RetaskResult, retask
+from .retask import RetaskResult, diff_plans, retask
 from .scenario import generate
 from .threats import RiskField, effective_envelope
 
@@ -32,7 +32,7 @@ api = APIRouter(prefix="/api")
 LOCK = threading.Lock()
 STATE: dict = {"world": None, "plan": None, "baseline_kpis": None, "reference_label": "vs manual-style plan",
                "version": 0, "history": [],
-               "proposal": None, "met_live": None, "coas": None}
+               "proposal": None, "met_live": None, "coas": None, "hardened": None}
 LIVE_MET_TTL_S = 1800
 
 
@@ -231,6 +231,46 @@ def stress(runs: int = 2000) -> dict:
     with LOCK:
         world, plan = _need_plan()
         return stress_test(world, plan, runs)
+
+
+@api.get("/robustness")
+def robustness(runs: int = 2000) -> dict:
+    """Monte Carlo execution of the committed plan and, if spares are not yet held, of the same plan
+    with ground spares (nothing else changed)."""
+    with LOCK:
+        world, plan = _need_plan()
+        out = {"version": STATE["version"], "now": world.now, "spare_policy": world.spare_policy,
+               "current": stress_test(world, plan, runs), "hardened": None}
+        if not world.spare_policy:
+            w = world.model_copy(deep=True)
+            w.spare_policy = True
+            hp = robust.add_spares(w, plan, candidates.build(w))
+            STATE["hardened"] = {"version": STATE["version"], "world": w, "plan": hp}
+            out["hardened"] = stress_test(w, hp, runs)
+        return out
+
+
+@api.post("/robustness/propose")
+def propose_spares() -> dict:
+    """Hold idle aircraft as ground spares: a proposal like any retask, approved by a human."""
+    with LOCK:
+        world, plan = _need_plan()
+        h = STATE["hardened"]
+        if not h:
+            raise HTTPException(404, "Run the robustness check first")
+        if h["version"] != STATE["version"]:
+            raise HTTPException(409, "Plan changed since the robustness check; run it again")
+        w, hp = h["world"], h["plan"]
+        n = sum(len(a.spares) for a in hp.assignments.values())
+        k = sum(1 for a in hp.assignments.values() if a.spares)
+        notes = [f"Hold {n} idle aircraft as ground spares for {k} missions. No mission, flying aircraft, crew "
+                 f"or TOT changes. Spares are loaded and booked for the sortie, and stay assigned through later "
+                 f"retasks."]
+        res = RetaskResult(world=w, plan=hp, diff=diff_plans(w, plan, hp), notes=notes)
+        pid = uuid.uuid4().hex[:8]
+        STATE["proposal"] = {"id": pid, "version": STATE["version"], "result": res}
+        return {"id": pid, "notes": notes, "diff": res.diff, "naive_diff": None, "world": w, "plan": hp,
+                "kpis": kpis(w, hp), "envelopes": envelopes(w)}
 
 
 app.include_router(api)

@@ -107,6 +107,10 @@ def build(world: World, fields: dict[frozenset, RiskField] | None = None) -> Can
             if not a.serviceable:
                 rej["aircraft unserviceable"] += 1
                 continue
+            if m.runway_m is not None and t.min_runway_m > m.runway_m:
+                rej["cannot land at the objective (helicopters only)" if m.runway_m == 0
+                    else f"runway too short ({m.runway_m} m)"] += 1
+                continue
             if m.weapon and t.weapons.get(m.weapon, 0) < m.weapons_per_aircraft:
                 rej[f"cannot carry {m.weapons_per_aircraft}x {m.weapon}"] += 1
                 continue

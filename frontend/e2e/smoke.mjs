@@ -1,4 +1,5 @@
-// End-to-end smoke test: load, plan, fog forecast -> closures -> approve, presets, drop a SAM, playback.
+// End-to-end smoke test: load, plan, COAs, robustness + ground spares, fog forecast -> closures -> approve, presets,
+// drop a SAM, playback.
 // Needs the engine serving the built UI:  (cd engine && uvicorn sarthi.api:app)  then  npm run e2e
 //   APP_URL   default http://127.0.0.1:8000/
 //   SHOTS     directory for screenshots (default e2e/shots)
@@ -65,6 +66,34 @@ await approve()
 const chip = (await page.locator('.intent-chip').textContent()) ?? ''
 step(`intent chip: ${chip.trim()}`)
 if (!chip.includes('Min risk')) throw new Error('adopted intent not shown')
+
+// Robustness: simulate execution, hold ground spares (no flying changes), then ask "what if" a key asset is lost.
+await page.click('.robust-chip')
+await page.waitForSelector('.robust-grid', { timeout: 120000 })
+await idle()
+step(`robustness: ${(await page.locator('.robust-grid .stat').allTextContents()).slice(0, 2).join(' | ')}`)
+await shot('02d-robustness')
+await page.click('text=Propose ground spares')
+await page.waitForSelector('.proposal-head', { timeout: 60000 })
+await idle()
+const spareStat = (await page.locator('.proposal-head .stat').first().textContent()) ?? ''
+step(`spares proposal: ${spareStat.trim()}`)
+if (!spareStat.includes('0 flying aircraft reassigned')) throw new Error('spares proposal changed flying aircraft')
+await approve()
+const sorties = (await page.locator('.tile').nth(3).textContent()) ?? ''
+if (!sorties.includes('spares')) throw new Error('spares not shown after approval')
+await page.click('.robust-chip')
+await page.waitForSelector('.robust-row.static button', { timeout: 120000 })
+await idle()
+await page.locator('.robust-row.static button').first().click()
+await page.waitForSelector('.proposal-head', { timeout: 60000 })
+await idle()
+const whatIf = (await page.locator('.change li').allTextContents()).join(' | ')
+step(`what-if: ${(await page.locator('.proposal-head h2').textContent())?.trim()} -> ${whatIf.slice(0, 160)}`)
+await shot('02e-what-if-spare-steps-in')
+await page.click('text=Reject')
+await page.waitForSelector('.proposal-head', { state: 'detached', timeout: 60000 })
+await idle()
 
 // Fog forecast -> closures -> proposal -> approve.
 await page.click('text=Jump to now')

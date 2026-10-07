@@ -17,7 +17,8 @@ cd frontend && npm run dev                         # terminal 2
 ```
 
 Checks: `npm run typecheck`, `npm run build`, and with the server running `npm run e2e`
-(Playwright: plan → COA compare → adopt Min risk → approve → intent persists → fog forecast → propose closures →
+(Playwright: plan → COA compare → adopt Min risk → approve → intent persists → robustness → ground spares → approve →
+what-if aircraft lost → reject → fog forecast → propose closures →
 approve → no duplicate closures → threshold change → time-sensitive target → drop SAM + threat surface → base fog
 card → playback; fails on any console error and saves a failure screenshot).
 
@@ -58,6 +59,17 @@ card → playback; fails on any console error and saves a failure screenshot).
 - **Adopt** creates a normal proposal (diff, KPI deltas). Nothing changes until you approve it. The approved intent then
   applies to every later retask, and the base cards show the alert reserve it implies.
 
+**Robustness**
+- *Robustness ▸* runs the committed plan through 2,000 simulated days with no replanning. Aircraft can be
+  unserviceable at start-up or lost before the target, tankers can fail to turn up, and a strike aborts if its SEAD
+  failed. The mean equals the Expected value tile.
+- Distribution of mission success: the current plan (grey bars) vs with ground spares (blue line), with p05 marked.
+  Mean, p05, p50 and p95 are shown before and after.
+- *What fails most* gives each mission's failure share and its first cause. *Single points of failure* lists assets
+  whose loss fails the most value (SEAD lost → strike lost); **What if?** turns that into a retask proposal.
+- **Propose ground spares** holds idle aircraft as spares (0 flying changes). In the aircraft view a spare is a dashed bar
+  with its stand-by start-up filled. The mission card lists its spares, and the Sorties tile shows the spare count.
+
 **Retask workflow (human in the loop)**: Inject event → proposal (diff, *naive re-plan would change N*,
 KPI deltas vs current plan) → **Approve & issue** or **Reject**. Every decision is logged.
 Detail cards for missions, bases, threats and aircraft include "what-if" actions (close a base,
@@ -78,6 +90,7 @@ ground an aircraft, raise priority, cancel mission) that go through the same pro
 | `src/components/MissionList.tsx` | Missions by priority |
 | `src/components/Weather.tsx` | Fog forecast panel and the reusable P(fog) chart |
 | `src/components/CoaPanel.tsx` | Courses-of-action comparison (scatter, trade sentences, table, adopt) |
+| `src/components/RobustPanel.tsx` | Robustness: outcome distribution, fragile missions, single points of failure, ground spares |
 | `e2e/smoke.mjs` | Browser end-to-end test with screenshots |
 
 The basemap is rebuilt from Natural Earth with `python -I tools/build_basemap.py` (see that file).

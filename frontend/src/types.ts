@@ -108,6 +108,7 @@ export interface World {
   aar_extension: number
   fatigue_threshold: number
   intent: Intent
+  spare_policy: boolean
 }
 
 export interface Sortie {
@@ -128,6 +129,7 @@ export interface Assignment {
   sorties: Sortie[]
   tankers: string[]
   tanker_sorties: Sortie[]
+  spares: Sortie[] // ground spares: same base and type as a package element, booked for the sortie
 }
 
 export interface Plan {
@@ -144,6 +146,7 @@ export interface Kpis {
   missions_total: number
   priority_weighted_fulfilment: number
   expected_value: number
+  spares: number
   sorties: number
   tanker_sorties: number
   mean_sortie_risk: number
@@ -182,6 +185,7 @@ export interface PlanDiff {
   aircraft_changes: number
   crew_changes: number
   tot_shifts: number
+  spare_changes: number
   untouched_missions: number
 }
 
@@ -294,3 +298,33 @@ export interface Coa {
 }
 
 export interface CoaResponse { version: number; now: number; current_intent: Intent; seconds: number; coas: Coa[] }
+
+// ---------- robustness (Monte Carlo execution, ground spares) ----------
+
+export type FailCause = 'serviceability' | 'tanker' | 'dependency' | 'attrition'
+
+export interface Fragile { mission: string; priority: number; p_fail: number; causes: Record<FailCause, number> }
+
+export interface SinglePoint { asset: string; type: string; base: string; tanker: boolean; missions: string[]; value: number }
+
+export interface StressResult {
+  runs: number
+  mean: number
+  p05: number
+  p50: number
+  p95: number
+  hist: number[]
+  bin_width: number
+  fragile: Fragile[]
+  single_points: SinglePoint[]
+  spares: number
+  missions_with_spares: number
+}
+
+export interface RobustnessResponse {
+  version: number
+  now: number
+  spare_policy: boolean
+  current: StressResult
+  hardened: StressResult | null
+}

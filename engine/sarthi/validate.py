@@ -6,6 +6,7 @@ from collections import defaultdict
 from .candidates import BRIEF_MIN, CREW_REST_MIN, DEBRIEF_MIN, Candidates
 from .fatigue import effectiveness, is_night
 from .models import Plan, Role, World
+from .robust import spare_standby
 
 
 def validate(world: World, plan: Plan, cands: Candidates, frozen: set[str] = frozenset()) -> list[str]:
@@ -67,6 +68,24 @@ def validate(world: World, plan: Plan, cands: Candidates, frozen: set[str] = fro
             crew_iv[s.crew].append((s.launch - BRIEF_MIN, s.recover + DEBRIEF_MIN + CREW_REST_MIN, mid))
             crew_n[s.crew] += 1
             crew_min[s.crew] += s.recover - s.launch
+        elements = {(s.base, world.aircraft[s.tail].type): s for s in a.sorties}
+        for sp in a.spares:
+            ac = world.aircraft[sp.tail]
+            t = world.types[ac.type]
+            ref = elements.get((sp.base, ac.type))
+            if ref is None or ac.base != sp.base or (sp.launch, sp.recover) != (ref.launch, ref.recover):
+                errs.append(f"{mid}: spare {sp.tail} does not match a package element")
+            if sp.tail in {s.tail for s in a.sorties}:
+                errs.append(f"{mid}: spare {sp.tail} is also a primary")
+            if live and not ac.serviceable:
+                errs.append(f"{mid}: spare {sp.tail} unserviceable")
+            if live and (m.role not in t.roles or sp.risk > world.risk_ceiling(m) + 1e-6):
+                errs.append(f"{mid}: spare {sp.tail} cannot fly this mission")
+            ac_iv[sp.tail].append((sp.launch, sp.recover + t.turnaround_min, mid))
+            if t.fighter:
+                fighter_iv[sp.base].append(spare_standby(world, sp))
+            if m.weapon:
+                use[(sp.base, m.weapon)] += m.weapons_per_aircraft
         cap = 0
         for ts in a.tanker_sorties:
             t = world.types[world.aircraft[ts.tail].type]

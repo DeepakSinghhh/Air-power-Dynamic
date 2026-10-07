@@ -22,6 +22,7 @@ interface Bar {
   sortie: Sortie
   a: Assignment
   tanker: boolean
+  spare: boolean
 }
 
 interface Tip {
@@ -42,13 +43,14 @@ function horizon(view: View): number {
 function sortiesByTail(plan: Plan | null): Map<string, Bar[]> {
   const out = new Map<string, Bar[]>()
   for (const a of Object.values(plan?.assignments ?? {})) {
-    const add = (s: Sortie, tanker: boolean) => {
+    const add = (s: Sortie, tanker: boolean, spare = false) => {
       const list = out.get(s.tail) ?? []
-      list.push({ key: `${sortieKey(a.mission, s.tail)}|${s.launch}`, mission: a.mission, tail: s.tail, sortie: s, a, tanker })
+      list.push({ key: `${sortieKey(a.mission, s.tail)}|${s.launch}${spare ? '|spare' : ''}`, mission: a.mission, tail: s.tail, sortie: s, a, tanker, spare })
       out.set(s.tail, list)
     }
     a.sorties.forEach((s) => add(s, false))
     a.tanker_sorties.forEach((s) => add(s, true))
+    ;(a.spares ?? []).forEach((s) => add(s, false, true))
   }
   return out
 }
@@ -227,6 +229,12 @@ export default function Timeline() {
       els.push(<path key="tot" d={diamond(x(a.tot), cy, 5.5)} fill={C.ink} stroke={C.surface} strokeWidth={2} opacity={dim} />)
       if (changeOf.get(m.id) === 'ADDED')
         els.push(<rect key="new" x={x(s0) - 3} y={cy - 8} width={x(s1) - x(s0) + 6} height={16} rx={4} fill="none" stroke={C.good} strokeWidth={1.5} />)
+      if (a.spares?.length)
+        els.push(
+          <text key="sp" x={x(Math.max(s1, m.tot_latest)) + 6} y={cy + 4} fontSize={10} fill={C.muted}>
+            +{a.spares.length} spare{a.spares.length > 1 ? 's' : ''}
+          </text>,
+        )
     } else {
       els.push(
         <text key="np" x={x(m.tot_latest) + 6} y={cy + 4} fontSize={11} fill={C.muted}>
@@ -283,6 +291,31 @@ export default function Timeline() {
       const m = world.missions[b.mission]
       if (!m) continue
       const s = b.sortie
+      if (b.spare) {
+        // Ground spare: booked for the whole sortie (dashed), standing by while the package starts up (filled).
+        const dim = focus && focus !== b.mission ? 0.35 : 1
+        const color = roleColor(m.role)
+        const hold = s.launch + type.prep_min + 15
+        const wpx = x(s.recover) - x(s.launch)
+        els.push(
+          <g key={b.key} className="bar"
+            onPointerEnter={() => setHoverMission(b.mission)}
+            onPointerLeave={() => { setHoverMission(null); setTip(null) }}
+            onPointerMove={(e) => showTip(e, spareTip(b, m))}
+            onClick={(e) => { e.stopPropagation(); select({ kind: 'mission', id: b.mission }) }}>
+            <rect x={x(s.launch) + 0.5} y={cy - 5.5} width={Math.max(1, wpx - 1)} height={11} rx={2} fill="none"
+              stroke={color} strokeOpacity={0.8 * dim} strokeDasharray="3 2" />
+            <rect x={x(s.launch) + 1} y={cy - 5} width={Math.max(1, x(hold) - x(s.launch) - 2)} height={10} rx={2}
+              fill={color} fillOpacity={0.35 * dim} />
+            {wpx > 70 && (
+              <text x={x(hold) + 4} y={cy + 3.5} fontSize={10} fill={C.ink2} opacity={dim} pointerEvents="none">
+                spare {b.mission}
+              </text>
+            )}
+          </g>,
+        )
+        continue
+      }
       const color = b.tanker ? FAMILY_COLOR.support : roleColor(m.role)
       const dim = focus && focus !== b.mission ? 0.35 : 1
       const prepEnd = s.launch + type.prep_min
@@ -405,7 +438,7 @@ export default function Timeline() {
         <span className="muted" style={{ fontSize: 12 }}>
           {mode === 'missions'
             ? '▭ TOT window · bar: ingress | on station | egress · ◆ TOT · ⤳ SEAD before strike'
-            : 'bar: start-up | transit | on station | return · hatched: turnaround · red hatch: base closed · blue cells: P(fog)'}
+            : 'bar: start-up | transit | on station | return · hatched: turnaround · dashed: ground spare · red hatch: base closed · blue cells: P(fog)'}
         </span>
         <div className="seg" role="group" aria-label="Zoom">
           <button onClick={() => setZoom(Math.max(1, zoom / 1.5))}>−</button>
@@ -553,6 +586,23 @@ function missionTip(m: Mission, a: Assignment | undefined, old: Assignment | und
       )}
       {old && a && old.tot !== a.tot && <div className="sub">Was TOT {fmtTime(old.tot)}</div>}
       {!a && plan?.unassigned[m.id]?.[0] && <div className="sub">{plan.unassigned[m.id][0]}</div>}
+    </>
+  )
+}
+
+function spareTip(b: Bar, m: Mission) {
+  const s = b.sortie
+  return (
+    <>
+      <div className="big">Ground spare</div>
+      <div className="line">
+        <span className="key" style={{ borderColor: roleColor(m.role) }} />
+        {b.tail} · {b.mission} ({m.role})
+      </div>
+      <div className="sub">
+        Starts up with the package at {fmtTime(s.launch)}; launches if a primary is unserviceable (its crew walks to the spare).
+        Booked until {fmtTime(s.recover)} so the plan stays feasible either way.
+      </div>
     </>
   )
 }
