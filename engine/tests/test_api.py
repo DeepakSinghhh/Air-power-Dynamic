@@ -43,3 +43,12 @@ def test_reject_and_stale_proposals():
     prop2 = client.post("/api/retask/propose", json={"events": tst["events"], "time_limit": 5}).json()
     client.post("/api/plan?time_limit=3")  # plan changes underneath the proposal
     assert client.post(f"/api/retask/{prop2['id']}/approve").status_code in (404, 409)
+
+
+def test_met_snapshot_closures_follow_threshold():
+    _planned()
+    hi = client.get("/api/met?source=snapshot&threshold=0.5&at=0").json()
+    assert hi["forecast"]["source"] == "snapshot" and hi["forecast"]["bases"]
+    assert hi["events"] and all(e["kind"] == "base_closure" and e["probability"] >= 0.5 for e in hi["events"])
+    lo = client.get("/api/met?source=snapshot&threshold=0.3&at=0").json()
+    assert sum(w["end"] - w["start"] for w in lo["windows"]) >= sum(w["end"] - w["start"] for w in hi["windows"])

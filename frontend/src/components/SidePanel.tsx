@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { eventTime, useStore, useView, type View } from '../store'
 import { C, FAMILY_COLOR, ROLE_NAME, STATUS_COLOR, STATUS_ICON, roleColor } from '../theme'
 import type { Base, EngineEvent, Mission, Threat } from '../types'
+import { FogChart, useMetForBase } from './Weather'
 import { baseStatus, fmtDur, fmtPct, fmtTime, haversineKm, routePath, serviceableAt } from '../util'
 
 export default function SidePanel() {
@@ -242,6 +243,7 @@ function BaseCard({ view, b }: { view: View; b: Base }) {
         <dt>Stocks</dt><dd>{Object.entries(b.stocks).map(([k, v]) => `${k} ${v}`).join(' · ') || 'none'}</dd>
         <dt>Closures</dt><dd>{b.closures.map((c) => `${fmtTime(c.start)}-${fmtTime(c.end)} ${c.reason}`).join('; ') || 'none'}</dd>
       </dl>
+      <BaseFog baseId={b.id} />
       <h5>What if</h5>
       <div className="btn-row" style={{ marginTop: 0 }}>
         <button className="btn small" disabled={disabled}
@@ -272,6 +274,30 @@ function BaseCard({ view, b }: { view: View; b: Base }) {
         </>
       )}
     </div>
+  )
+}
+
+function BaseFog({ baseId }: { baseId: string }) {
+  const { met, windows, threshold } = useMetForBase(baseId)
+  const now = useStore((s) => s.app?.world.now ?? 0)
+  const source = useStore((s) => s.met?.forecast.label)
+  if (!met) return null
+  const peak = Math.max(...met.p_fog)
+  const at = met.times[met.p_fog.indexOf(peak)]
+  return (
+    <>
+      <h5>Fog forecast</h5>
+      <FogChart met={met} threshold={threshold} width={320} height={met.observed_vis_m ? 72 : 64} axis now={now} />
+      <p className="ink2" style={{ fontSize: 12 }}>
+        Peak P(visibility &lt; 1 km) <b className="num">{fmtPct(peak)}</b> at {fmtTime(at)}
+        {windows.length > 0
+          ? ` · above ${fmtPct(threshold)}: ${windows.map((w) => `${fmtTime(w.start)}-${fmtTime(w.end + 1)}`).join(', ')}`
+          : ` · stays below ${fmtPct(threshold)}`}
+      </p>
+      <p className="muted" style={{ fontSize: 11 }}>
+        {source}{met.observed_station ? ` · white ticks: observed fog at ${met.observed_station}` : ''}
+      </p>
+    </>
   )
 }
 

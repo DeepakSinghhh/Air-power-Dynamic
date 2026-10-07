@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useStore, useView } from '../store'
 import type { Kpis } from '../types'
 import { fmtPct, fmtTime } from '../util'
+import { WeatherMenu } from './Weather'
 
 type Better = 'up' | 'down' | 'none'
 
@@ -204,6 +205,7 @@ export default function TopBar() {
       </div>
       <div className="actions">
         <BusyPill />
+        <WeatherMenu />
         <EventMenu />
         <ScenarioMenu />
       </div>

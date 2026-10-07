@@ -25,6 +25,7 @@ class Window(BaseModel):
     start: int
     end: int
     reason: str = ""
+    probability: float | None = None  # forecast probability that triggered the closure (None = certain)
 
 
 class Base(BaseModel):

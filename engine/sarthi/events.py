@@ -19,10 +19,13 @@ class BaseClosure(_Event):
     start: int
     end: int
     reason: str = "weather below minima"
+    probability: float | None = None
 
     def apply(self, w: World) -> str:
-        w.bases[self.base].closures.append(Window(start=self.start, end=self.end, reason=self.reason))
-        return f"{w.bases[self.base].name} closed {fmt_time(self.start)}-{fmt_time(self.end)} ({self.reason})"
+        w.bases[self.base].closures.append(Window(start=self.start, end=self.end, reason=self.reason,
+                                                  probability=self.probability))
+        p = f", P {self.probability:.0%}" if self.probability is not None else ""
+        return f"{w.bases[self.base].name} closed {fmt_time(self.start)}-{fmt_time(self.end)} ({self.reason}{p})"
 
 
 class AircraftDown(_Event):

@@ -269,13 +269,34 @@ padding packages. The greedy baseline is used as a warm-start hint, so the optim
 | Model | Method | Output into optimiser | Data |
 |---|---|---|---|
 | Aircraft serviceability (MX) | Survival / gradient boosting on hours since inspection, sorties in the last 72 h, snag history | `p_serviceable`, `available_from`; alerts trigger proactive retask | Synthetic logs; NASA C-MAPSS turbofan data to show RUL modelling |
-| Weather go/no-go | Ensemble probability that ceiling/visibility falls below minima at launch/recovery | Base closure windows with probability | Open-Meteo (incl. ensembles), METAR/TAF from aviationweather.gov |
+| Fog / visibility (built) | MOS: logistic model on Open-Meteo NWP fields, trained on observed METARs (see 6.6.1) | Base closure windows with probability, at a commander-set threshold | Open-Meteo historical + live forecasts; IEM METAR archive |
 | Crew fatigue (built) | Two-process model (Borbély): homeostatic S + circadian C → effectiveness % | Fit TOT windows per crew | Rosters, sleep logs; swap in SAFTE (open via the SAFTEr R package) |
 | Threat evolution (built, simple) | Intel-age envelope growth; next: KDE heatmap of pop-up likelihood | Hazard field | Synthetic intel |
 | Consumption & resupply | Weapon/fuel burn-down per base | Auto-generated airlift missions to restock forward bases | Plan output |
 
 **North-India winter fog** is real and topical for a December demo. A model that forecasts a base closure
 three hours ahead, plus a retask diff, is the strongest "predictive analytics" story you can tell.
+
+#### 6.6.1 Fog forecasting (built: `met.py`, `tools/build_fog_model.py`)
+
+- **Why not just use the forecast's visibility?** Numerical models are poor at radiation fog. On 3 Jan 2025
+  the archived Open-Meteo forecast for Delhi gave **24 km visibility all day**, while the airport reported
+  **0 m**. The same forecast did show the precursors: RH 100%, dew-point depression ~0 °C, light wind,
+  and 100% low cloud.
+- **Model Output Statistics (MOS)**, the way met services post-process models: a logistic regression on
+  forecast fields maps them to P(visibility < 1 km). The fields are RH, a high-RH hinge, dew-point
+  depression, wind, low and total cloud, hour of day, 3-hour RH trend, and a calm-and-saturated flag.
+  Labels are **observed METAR visibility** at 12 fog-belt airfields (IEM archive).
+- **Honest evaluation:** train on {TRAIN}, test on the **held-out winter {TEST}**
+  ({NTEST} hours, fog in {FOGRATE} of them). Results:
+  - Brier skill **{BSS}** vs climatology
+  - AUC **{AUC}**
+  - at P ≥ 50%: probability of detection {POD}, false-alarm ratio {FAR}
+  - raw model visibility < 1 km detected only **{RAWPOD}** of fog hours
+- **Probability, not a yes/no.** The commander sets the risk threshold (30 / 50 / 70%), and the forecast becomes
+  proposed base closures that go through the normal proposal → approve flow.
+- **Offline:** the demo uses a cached real dense-fog night (**{DEMO}**, from the held-out winter), with the
+  observed METAR overlaid for verification. Live mode calls Open-Meteo for the next ~30 h.
 
 ### 6.7 Explainability (built: `explain.py`)
 - **Reason codes** for each screened-out option, aggregated per mission.

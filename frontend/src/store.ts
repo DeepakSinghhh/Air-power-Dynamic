@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { create } from 'zustand'
 
 import { api } from './api'
-import type { AppState, EngineEvent, Hazard, Preset, Proposal, Selection } from './types'
+import type { AppState, EngineEvent, Hazard, MetResponse, MetSource, Preset, Proposal, Selection } from './types'
 
 export interface Layers {
   hazard: boolean
@@ -32,6 +32,11 @@ interface Store {
   hideIdle: boolean
   layers: Layers
   tool: Tool
+  met: MetResponse | null
+  metSource: MetSource
+  metThreshold: number
+  metLoading: boolean
+  metError: string | null
 
   init: () => Promise<void>
   newScenario: (seed: number) => Promise<void>
@@ -51,6 +56,7 @@ interface Store {
   toggleLayer: (k: keyof Layers) => void
   setTool: (t: Tool) => void
   dismissError: () => void
+  loadMet: (source?: MetSource, threshold?: number) => Promise<void>
 }
 
 const PLAN_SECONDS = 10
@@ -69,8 +75,10 @@ export const useStore = create<Store>((set, get) => {
     }
   }
 
-  const commit = (app: AppState) =>
+  const commit = (app: AppState) => {
     set((s) => ({ app, proposal: null, presets: null, viewTime: Math.max(s.viewTime, app.world.now) }))
+    void get().loadMet()
+  }
 
   return {
     app: null,
@@ -89,6 +97,11 @@ export const useStore = create<Store>((set, get) => {
     hideIdle: true,
     layers: { hazard: false, threats: true, routes: true, aircraft: true, labels: true, rivers: true },
     tool: null,
+    met: null,
+    metSource: 'snapshot',
+    metThreshold: 0.5,
+    metLoading: false,
+    metError: null,
 
     init: async () => {
       await run('Loading operational picture', async () => {
@@ -164,6 +177,22 @@ export const useStore = create<Store>((set, get) => {
     toggleLayer: (k) => set((s) => ({ layers: { ...s.layers, [k]: !s.layers[k] } })),
     setTool: (tool) => set({ tool }),
     dismissError: () => set({ error: null }),
+
+    loadMet: async (source, threshold) => {
+      const s = get()
+      const src = source ?? s.metSource
+      const thr = threshold ?? s.metThreshold
+      const at = Math.max(s.app?.world.now ?? 0, Math.round(s.viewTime / 5) * 5)
+      set({ metSource: src, metThreshold: thr, metLoading: true, metError: null })
+      try {
+        set({ met: await api.met(src, thr, at) })
+      } catch (e) {
+        // Live data can be unreachable (offline venue): keep the last forecast and say why.
+        set({ metError: e instanceof Error ? e.message : String(e) })
+      } finally {
+        set({ metLoading: false })
+      }
+    },
   }
 })
 

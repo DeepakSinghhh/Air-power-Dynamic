@@ -3,7 +3,7 @@
 
 export type Role = 'DCA' | 'STRIKE' | 'SEAD' | 'CAS' | 'ISR' | 'AEW' | 'AAR' | 'AIRLIFT'
 
-export interface TimeWindow { start: number; end: number; reason: string }
+export interface TimeWindow { start: number; end: number; reason: string; probability?: number | null }
 
 export interface Base {
   id: string
@@ -185,7 +185,7 @@ export interface Proposal {
 
 // Events accepted by /api/retask/propose (discriminated by `kind`).
 export type EngineEvent =
-  | { kind: 'base_closure'; at: number; base: string; start: number; end: number; reason: string }
+  | { kind: 'base_closure'; at: number; base: string; start: number; end: number; reason: string; probability?: number | null }
   | { kind: 'aircraft_down'; at: number; tails: string[]; reason: string }
   | { kind: 'new_threat'; at: number; threat: Threat }
   | { kind: 'new_mission'; at: number; mission: Mission }
@@ -211,3 +211,45 @@ export type Selection =
   | { kind: 'base'; id: string }
   | { kind: 'threat'; id: string }
   | { kind: 'aircraft'; id: string }
+
+// ---------- weather (fog MOS forecast) ----------
+
+export interface BaseMet {
+  times: number[]
+  p_fog: number[]
+  nwp_vis_m: (number | null)[]
+  rh: (number | null)[]
+  wind_kmh: (number | null)[]
+  observed_vis_m: (number | null)[] | null
+  observed_station: string | null
+}
+
+export interface MetWindow { base: string; start: number; end: number; peak: number }
+
+export interface Contingency { pod: number; far: number; csi: number }
+
+export interface MetModelMeta {
+  target: string
+  train_winters: string[]
+  test_winter: string
+  n_train: number
+  n_test: number
+  fog_rate_test: number
+  auc: number
+  brier: number
+  brier_climatology: number
+  brier_skill: number
+  'mos_at_0.5': Contingency
+  raw_nwp_vis_below_1km: Contingency
+  reliability: { bin: string; n: number; forecast: number; observed: number }[]
+}
+
+export type MetSource = 'snapshot' | 'live'
+
+export interface MetResponse {
+  forecast: { source: MetSource; label: string; date: string; model: MetModelMeta; bases: Record<string, BaseMet> }
+  threshold: number
+  at: number
+  windows: MetWindow[]
+  events: EngineEvent[]
+}

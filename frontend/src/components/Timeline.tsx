@@ -69,6 +69,7 @@ export default function Timeline() {
   const select = useStore((s) => s.select)
   const hoverMission = useStore((s) => s.hoverMission)
   const setHoverMission = useStore((s) => s.setHoverMission)
+  const metResp = useStore((s) => s.met)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(1200)
@@ -327,9 +328,18 @@ export default function Timeline() {
 
   const groupRow = (baseId: string, y: number, h: number) => {
     const b = world.bases[baseId]
+    const fog = metResp?.forecast.bases[baseId]
     return (
       <g key={`g-${baseId}`}>
         <rect x={0} y={y} width={contentW} height={h} fill={C.surface2} />
+        {fog?.times.map((t, i) =>
+          fog.p_fog[i] >= 0.1 ? (
+            <rect key={`f${t}`} x={x(t) + 0.5} y={y + 3} width={Math.max(1, x(t + 60) - x(t) - 1)} height={h - 6} rx={2}
+              fill={C.accent} fillOpacity={0.15 + 0.7 * fog.p_fog[i]}>
+              <title>{`${fmtTime(t)} P(fog) ${fmtPct(fog.p_fog[i])}`}</title>
+            </rect>
+          ) : null,
+        )}
         {b.closures.map((c, i) => (
           <g key={i}>
             <rect x={x(c.start)} y={y} width={x(c.end) - x(c.start)} height={h} fill={C.critical} fillOpacity={0.25} />
@@ -395,7 +405,7 @@ export default function Timeline() {
         <span className="muted" style={{ fontSize: 12 }}>
           {mode === 'missions'
             ? '▭ TOT window · bar: ingress | on station | egress · ◆ TOT · ⤳ SEAD before strike'
-            : 'bar: start-up | transit | on station | return · hatched: turnaround · red hatch: base closed'}
+            : 'bar: start-up | transit | on station | return · hatched: turnaround · red hatch: base closed · blue cells: P(fog)'}
         </span>
         <div className="seg" role="group" aria-label="Zoom">
           <button onClick={() => setZoom(Math.max(1, zoom / 1.5))}>−</button>
@@ -492,7 +502,8 @@ function RowLabel({ row, view, changeOf }: { row: Row; view: View; changeOf: Map
     const st = baseStatus(b, viewTime)
     const n = Object.values(world.aircraft).filter((a) => a.base === b.id)
     return (
-      <div className="tl-label group" style={{ height: row.h }} title={st.text}>
+      <div className="tl-label group" style={{ height: row.h, cursor: 'pointer' }} title={st.text}
+        onClick={() => select({ kind: 'base', id: b.id })}>
         <span className="swatch" style={{ background: st.status === 'open' ? C.good : st.status === 'closing' ? C.warning : C.critical }} />
         <span className="t">{b.name.toUpperCase()}</span>
         <span className="muted" style={{ fontWeight: 400 }}>{n.filter((a) => a.serviceable).length}/{n.length} svc</span>

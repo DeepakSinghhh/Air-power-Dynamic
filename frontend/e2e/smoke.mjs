@@ -1,4 +1,4 @@
-// End-to-end smoke test: load, plan, select, inject an event, review, approve, drop a SAM.
+// End-to-end smoke test: load, plan, fog forecast -> closures -> approve, presets, drop a SAM, playback.
 // Needs the engine serving the built UI:  (cd engine && uvicorn sarthi.api:app)  then  npm run e2e
 //   APP_URL   default http://127.0.0.1:8000/
 //   SHOTS     directory for screenshots (default e2e/shots)
@@ -28,6 +28,15 @@ const shot = async (name) => {
   console.log(`shot ${name}`)
 }
 const step = (msg) => console.log(`- ${msg}`)
+const approve = async () => {
+  await page.click('text=Approve & issue changes')
+  await page.waitForSelector('.proposal-head', { state: 'detached', timeout: 60000 })
+  await idle()
+}
+const openWeather = async () => {
+  await page.click('.btn:has-text("Weather")')
+  await page.waitForSelector('.wx-row', { timeout: 60000 })
+}
 
 await page.goto(URL)
 await page.waitForSelector('.tl-content', { timeout: 180000 })
@@ -35,30 +44,48 @@ await idle()
 step(`plan loaded: ${await page.locator('.tile b').first().textContent()} fulfilment`)
 await shot('01-plan')
 
-// Select the highest-priority planned mission from the list.
 await page.locator('.mrow').first().click()
 await shot('02-mission-selected')
+await page.keyboard.press('Escape')
 
-// Scrub to 02:00 and inject the fog preset.
+// Fog forecast -> closures -> proposal -> approve.
 await page.click('text=Jump to now')
-await page.click('text=Inject event')
-await page.waitForSelector('.menu-item:has-text("Fog forecast")', { timeout: 60000 })
-await page.click('.menu-item:has-text("Fog forecast")')
+await openWeather()
+step(`weather: ${await page.locator('.wx-row').count()} bases, button "${(await page.locator('.wx-menu .btn.primary').textContent())?.trim()}"`)
+await shot('03-weather-panel')
+await page.click('.wx-menu .btn.primary')
 await page.waitForSelector('.proposal-head', { timeout: 180000 })
 await idle()
-step(`proposal: ${(await page.locator('.proposal-head .stat').first().textContent())?.trim()}`)
-await shot('03-proposal')
-
+step(`fog proposal: ${(await page.locator('.proposal-head .stat').first().textContent())?.trim()}`)
+await shot('04-fog-proposal')
 await page.click('.seg button:has-text("Aircraft")')
-await shot('04-proposal-aircraft-view')
+await shot('05-fog-proposal-aircraft-view')
+await approve()
+await shot('06-fog-approved')
 
-await page.click('text=Approve & issue changes')
-await page.waitForSelector('.proposal-head', { state: 'detached', timeout: 60000 })
-await idle()
-await shot('05-approved')
+// Same forecast again proposes nothing new; a lower threshold proposes more.
+await openWeather()
+const again = (await page.locator('.wx-menu .btn.primary').textContent())?.trim()
+step(`after approval at 50%: "${again}"`)
+if (!again?.startsWith('No new closures')) throw new Error('approved closures were proposed again')
+await page.click('.wx-menu .seg button:has-text("≥30%")')
+await page.waitForFunction(() => !document.querySelector('.wx-menu .btn.primary')?.textContent?.startsWith('No new'), null, { timeout: 30000 }).catch(() => {})
+step(`at 30%: "${(await page.locator('.wx-menu .btn.primary').textContent())?.trim()}"`)
+await page.click('.wx-menu .seg button:has-text("≥50%")')
+await page.keyboard.press('Escape')
+await page.mouse.click(5, 300)
 
-// Map tool: drop a medium-range SAM in the middle of the map, then reject the proposal.
+// A preset: time-sensitive target.
 await page.click('.seg button:has-text("Missions")')
+await page.click('text=Inject event')
+await page.waitForSelector('.menu-item:has-text("Time-sensitive target")', { timeout: 60000 })
+await page.click('.menu-item:has-text("Time-sensitive target")')
+await page.waitForSelector('.proposal-head', { timeout: 180000 })
+await idle()
+step(`TST proposal: ${(await page.locator('.proposal-head .stat').first().textContent())?.trim()}`)
+await approve()
+
+// Map tool: drop a medium-range SAM, show the threat surface, then reject.
 await page.click('text=Inject event')
 await page.click('.menu-item:has-text("Drop a medium-range SAM")')
 const box = await page.locator('.map-wrap').boundingBox()
@@ -68,9 +95,18 @@ await page.waitForSelector('.proposal-head', { timeout: 180000 })
 await idle()
 await page.click('.chip:has-text("Threat surface")')
 await page.waitForTimeout(1500)
-await shot('06-dropped-sam-hazard')
+await shot('07-dropped-sam-hazard')
 await page.click('text=Reject')
 await page.waitForSelector('.proposal-head', { state: 'detached', timeout: 60000 })
+
+// Base card with fog chart (select a base from its timeline group header).
+await page.click('.chip:has-text("Threat surface")')
+await page.click('.seg button:has-text("Aircraft")')
+await page.locator('.tl-label.group:has-text("HALWARA")').click()
+await page.waitForSelector('text=Fog forecast', { timeout: 30000 })
+await shot('08-base-fog-card')
+await page.keyboard.press('Escape')
+await page.click('text=Jump to now')
 
 // Playback: advance the clock and check aircraft are drawn.
 await page.click('.seg button:has-text("Fit")')
@@ -78,7 +114,7 @@ await page.click('text=▶ Play')
 await page.waitForTimeout(2500)
 await page.click('text=❚❚ Pause')
 step(`airborne: ${await page.locator('.view-clock').textContent()}`)
-await shot('07-playback')
+await shot('09-playback')
 
 await browser.close()
 if (errors.length) {

@@ -10,6 +10,7 @@ import random
 import numpy as np
 from pydantic import BaseModel
 
+from . import met
 from .events import AircraftDown, BaseClosure, Event, NewMission, NewThreat, StockLoss
 from .geo import fmt_time
 from .models import Mission, Plan, Role, Threat, World
@@ -49,17 +50,33 @@ def _unique(prefix: str, existing) -> str:
     return f"{prefix}-{n:02d}"
 
 
+def fog_preset(world: World, fallback_base: str, at: int, threshold: float = 0.5) -> Preset:
+    """Fog closures from the MOS forecast (cached dense-fog night); synthetic closure if none apply."""
+    try:
+        fc = met.snapshot_forecast(world)
+        events = met.closure_events(world, met.fog_windows(fc, threshold, after=at), at)
+    except (OSError, ValueError, KeyError):
+        fc, events = None, []
+    if fc and events:
+        names = sorted({world.bases[e.base].name for e in events})
+        detail = "; ".join(f"{world.bases[e.base].name} P {e.probability:.0%} {fmt_time(e.start)}-{fmt_time(e.end)}"
+                           for e in events[:4])
+        return Preset(id="fog", label=f"Met forecast: fog at {len(names)} base{'s' if len(names) > 1 else ''}",
+                      detail=f"{detail}{' ...' if len(events) > 4 else ''} · MOS on Open-Meteo, {fc.label}",
+                      events=events)
+    b = world.bases[fallback_base]
+    s, e = at + 180, at + 450
+    return Preset(id="fog", label=f"Fog forecast: {b.name} (synthetic)",
+                  detail=f"RVR below minima at {b.name} {fmt_time(s)}-{fmt_time(e)}",
+                  events=[BaseClosure(at=at, base=b.id, start=s, end=e, reason="fog forecast, RVR below minima")])
+
+
 def presets(world: World, plan: Plan, at: int) -> list[Preset]:
     at = max(at, world.now)
     out: list[Preset] = []
     busy = busiest_bases(world, plan, after=at + 60)
 
-    b = world.bases[busy[0]]
-    s, e = at + 180, at + 450
-    out.append(Preset(id="fog", label=f"Fog forecast: {b.name}",
-                      detail=f"Met model predicts RVR below minima at {b.name} {fmt_time(s)}-{fmt_time(e)}",
-                      events=[BaseClosure(at=at, base=b.id, start=s, end=e,
-                                          reason="fog forecast, RVR below minima")]))
+    out.append(fog_preset(world, busy[0], at))
 
     strikes = [a for a in plan.assignments.values()
                if world.missions.get(a.mission) and world.missions[a.mission].role == Role.STRIKE

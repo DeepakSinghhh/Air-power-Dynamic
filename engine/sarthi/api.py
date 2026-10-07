@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -17,7 +18,7 @@ from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import candidates, greedy, optimizer
+from . import candidates, greedy, met, optimizer
 from .events import Event
 from .kpi import kpis, stress_test
 from .models import Plan, World
@@ -30,7 +31,8 @@ app = FastAPI(title="VAYU-SARTHI engine", version="0.2.0")
 api = APIRouter(prefix="/api")
 LOCK = threading.Lock()
 STATE: dict = {"world": None, "plan": None, "baseline_kpis": None, "version": 0, "history": [],
-               "proposal": None}
+               "proposal": None, "met_live": None}
+LIVE_MET_TTL_S = 1800
 
 
 class ScenarioReq(BaseModel):
@@ -110,6 +112,32 @@ def hazard(proposal: bool = False) -> dict:
     q = np.round(np.sqrt(h / hmax) * 255).astype(np.uint8)  # sqrt keeps faint envelope edges visible
     return {"lat0": f.lat0, "lon0": f.lon0, "res": f.res, "nlat": f.nlat, "nlon": f.nlon, "max": hmax,
             "scale": "sqrt", "data": base64.b64encode(q.tobytes()).decode()}
+
+
+@api.get("/met")
+def met_forecast(source: str = "snapshot", threshold: float = 0.5, at: int | None = None) -> dict:
+    """Fog forecast per base (MOS on Open-Meteo NWP) and the closures it implies at `threshold`.
+
+    source=snapshot uses the cached dense-fog night (works offline); source=live calls Open-Meteo.
+    """
+    with LOCK:
+        world = _ensure_world().model_copy(deep=True)
+    at = max(world.now if at is None else at, world.now)
+    if source == "live":
+        cached = STATE["met_live"]
+        if cached and time.time() - cached[0] < LIVE_MET_TTL_S:
+            fc = cached[1]
+        else:
+            try:
+                fc = met.live_forecast(world)
+            except RuntimeError as e:
+                raise HTTPException(503, f"{e}. Use the cached snapshot (source=snapshot).")
+            STATE["met_live"] = (time.time(), fc)
+    else:
+        fc = met.snapshot_forecast(world)
+    windows = met.fog_windows(fc, threshold, after=at)
+    return {"forecast": fc, "threshold": threshold, "at": at, "windows": windows,
+            "events": met.closure_events(world, windows, at)}
 
 
 @api.get("/presets")

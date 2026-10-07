@@ -192,6 +192,12 @@ function tooltipFor(info: PickingInfo, view: View): ReactNode | null {
         <div className="big">{b.name}</div>
         <Line color={STATUS_COLOR[st.status]}>{STATUS_ICON[st.status]} {st.text}</Line>
         <div className="sub">{sv.serviceable}/{sv.total} aircraft serviceable · reserve {b.fighter_reserve}</div>
+        {(() => {
+          const fog = useStore.getState().met?.forecast.bases[b.id]
+          if (!fog) return null
+          const peak = Math.max(...fog.p_fog)
+          return <div className="sub">Fog forecast: peak P {fmtPct(peak)} at {fmtTime(fog.times[fog.p_fog.indexOf(peak)])}</div>
+        })()}
         {Object.keys(b.stocks).length > 0 && (
           <div className="sub">{Object.entries(b.stocks).map(([k, v]) => `${k} ${v}`).join(' · ')}</div>
         )}
