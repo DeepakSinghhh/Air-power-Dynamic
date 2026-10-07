@@ -186,3 +186,21 @@ def test_ground_spare_steps_in_for_unserviceable_primary(planned):
     assert spare.tail in {s.tail for s in new.sorties}
     assert validate(res.world, res.plan, candidates.build(res.world),
                     optimizer.frozen_missions(res.world, res.plan)) == []
+
+
+def test_what_would_it_take_finds_valid_relaxations():
+    from pydantic import TypeAdapter
+
+    from sarthi.events import Event
+    from sarthi.whatif import what_would_it_take
+    world = generate(7)
+    cands = candidates.build(world)
+    plan = optimizer.solve(world, cands, hint=greedy.solve(world, cands), time_limit=6)
+    unplanned = sorted(set(world.missions) - set(plan.assignments), key=lambda m: -world.missions[m].priority)
+    assert unplanned
+    working = [(mid, o) for mid in unplanned for o in what_would_it_take(world, plan, mid, time_limit=3) if o.planned]
+    assert working  # at least one unplanned mission has a relaxation that gets it planned
+    for mid, o in working:
+        res = retask(world, plan, TypeAdapter(list[Event]).validate_python(o.events), 3)
+        assert validate(res.world, res.plan, candidates.build(res.world),
+                        optimizer.frozen_missions(res.world, res.plan)) == []

@@ -18,7 +18,7 @@ from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import candidates, coa, greedy, met, optimizer, robust
+from . import candidates, coa, greedy, met, optimizer, robust, whatif
 from .events import Event
 from .kpi import kpis, stress_test
 from .models import Plan, World
@@ -176,6 +176,21 @@ def propose_coa(coa_id: str) -> dict:
         STATE["proposal"] = {"id": pid, "version": STATE["version"], "result": res}
         return {"id": pid, "notes": notes, "diff": c.diff, "naive_diff": None, "world": w, "plan": c.plan,
                 "kpis": c.kpis, "envelopes": envelopes(w)}
+
+
+@api.post("/whatif/{mission}")
+def what_would_it_take(mission: str, time_limit: float = 3.0) -> dict:
+    """Counterfactuals for an unplanned mission: single relaxations re-solved in parallel."""
+    with LOCK:
+        world, plan = _need_plan()
+        if mission not in world.missions:
+            raise HTTPException(404, f"Unknown mission {mission}")
+        if mission in plan.assignments:
+            raise HTTPException(409, f"{mission} is already planned")
+        t0 = time.perf_counter()
+        out = whatif.what_would_it_take(world, plan, mission, time_limit)
+        return {"mission": mission, "version": STATE["version"], "seconds": round(time.perf_counter() - t0, 1),
+                "outcomes": out}
 
 
 @api.get("/presets")

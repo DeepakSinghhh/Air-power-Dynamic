@@ -35,10 +35,10 @@ class RetaskResult(BaseModel):
 
 
 def retask(world: World, plan: Plan, events: list, time_limit: float = 10.0,
-           compare_naive: bool = False) -> RetaskResult:
+           compare_naive: bool = False, workers: int = 8) -> RetaskResult:
     new_world, notes = apply_events(world, events)
     cands = build(new_world)
-    new_plan = optimizer.solve(new_world, cands, baseline=plan, time_limit=time_limit)
+    new_plan = optimizer.solve(new_world, cands, baseline=plan, time_limit=time_limit, workers=workers)
     res = RetaskResult(world=new_world, plan=new_plan, diff=diff_plans(new_world, plan, new_plan), notes=notes)
     if compare_naive:
         naive = optimizer.solve(new_world, cands, baseline=plan, time_limit=time_limit, churn=False)

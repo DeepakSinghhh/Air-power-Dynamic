@@ -195,7 +195,7 @@ export function WeatherMenu() {
   return (
     <div className="menu-wrap" ref={ref}>
       <button className="btn" onClick={() => setOpen(!open)} title="Fog forecast for every base">
-        Weather{fogBases ? ` · fog at ${fogBases}` : ''} ▾
+        Weather{fogBases ? <span className="wide-only"> · fog at {fogBases}</span> : null} ▾
       </button>
       {open && (
         <div className="menu wx-menu" role="dialog" aria-label="Fog forecast">

@@ -218,6 +218,9 @@ export type EngineEvent =
   | { kind: 'priority_change'; at: number; mission: string; priority: number }
   | { kind: 'stock_loss'; at: number; base: string; weapon: string; qty: number }
   | { kind: 'new_zone'; at: number; zone: RestrictedZone }
+  | { kind: 'risk_acceptance'; at: number; mission: string; max_risk: number }
+  | { kind: 'window_change'; at: number; mission: string; tot_earliest: number; tot_latest: number }
+  | { kind: 'resupply'; at: number; base: string; weapon: string; qty: number }
 
 export interface Preset { id: string; label: string; detail: string; events: EngineEvent[] }
 
@@ -337,3 +340,19 @@ export interface RobustnessResponse {
   current: StressResult
   hardened: StressResult | null
 }
+
+// ---------- what would it take? (counterfactuals for an unplanned mission) ----------
+
+export interface WhatIfOutcome {
+  id: string
+  label: string
+  detail: string
+  planned: boolean
+  aircraft_changes: number
+  dropped: string[]
+  fulfilment_before: number
+  fulfilment_after: number
+  events: EngineEvent[]
+}
+
+export interface WhatIfResponse { mission: string; version: number; seconds: number; outcomes: WhatIfOutcome[] }

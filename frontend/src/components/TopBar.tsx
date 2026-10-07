@@ -10,6 +10,7 @@ import { WeatherMenu } from './Weather'
 type Better = 'up' | 'down' | 'none'
 
 function Tile(props: {
+  className?: string
   label: string
   value: string
   delta?: number
@@ -18,7 +19,7 @@ function Tile(props: {
   refLabel?: string
   title?: string
 }) {
-  const { label, value, delta, deltaText, better = 'none', refLabel, title } = props
+  const { className, label, value, delta, deltaText, better = 'none', refLabel, title } = props
   let cls = ''
   let glyph = ''
   if (delta !== undefined && Math.abs(delta) > 1e-9) {
@@ -27,7 +28,7 @@ function Tile(props: {
     if (better !== 'none') cls = (up ? 'up' : 'down') + ((up ? better === 'up' : better === 'down') ? '-good' : '-bad')
   }
   return (
-    <div className="tile" title={title}>
+    <div className={`tile${className ? ` ${className}` : ''}`} title={title ?? (refLabel ? `Change ${refLabel}` : undefined)}>
       <label>{label}</label>
       <b className="num">{value}</b>
       {deltaText !== undefined && (
@@ -35,7 +36,7 @@ function Tile(props: {
           <span className={cls}>
             {glyph} {deltaText}
           </span>{' '}
-          {refLabel}
+          <span className="ref">{refLabel}</span>
         </small>
       )}
     </div>
@@ -60,7 +61,7 @@ function kpiTiles(k: Kpis, ref: Kpis | null, refLabel: string, hadr: boolean) {
       delta={ref ? k.missions_planned - ref.missions_planned : undefined}
       deltaText={ref ? n(k.missions_planned, ref.missions_planned) : undefined}
       better="up" refLabel="" />,
-    <Tile key="s" label="Sorties" value={`${k.sorties}`}
+    <Tile key="s" className="tile-sorties" label="Sorties" value={`${k.sorties}`}
       deltaText={[k.tanker_sorties ? `+${k.tanker_sorties} tanker` : 'no tanker', k.spares ? `${k.spares} spares` : ''].filter(Boolean).join(' · ')} />,
     hadr ? (
       <Tile key="t" label="Relief lifted" value={`${Math.round(k.cargo_planned_t)} / ${Math.round(k.cargo_total_t)} t`}
@@ -108,7 +109,7 @@ function EventMenu() {
     <div className="menu-wrap" ref={ref}>
       <button className="btn primary" disabled={!!proposal || !!busy} onClick={() => setOpen(!open)}
         title={proposal ? 'Approve or reject the pending proposal first' : 'Inject an operational event'}>
-        Inject event ▾
+        Inject<span className="wide-only"> event</span> ▾
       </button>
       {open && (
         <div className="menu" role="menu">
@@ -203,7 +204,7 @@ function IntentChip() {
   if (!intent || !hasPlan || hadr) return null
   return (
     <button className="intent-chip" onClick={() => setOpen(true)} title="Compare courses of action">
-      Intent: <b>{intent}</b> · COAs ▸
+      <span className="wide-only">Intent: </span><b>{intent}</b><span className="wide-only"> · COAs</span> ▸
     </button>
   )
 }

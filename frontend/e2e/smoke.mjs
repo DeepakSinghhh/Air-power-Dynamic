@@ -50,6 +50,29 @@ await page.locator('.mrow').first().click()
 await shot('02-mission-selected')
 await page.keyboard.press('Escape')
 
+// What would it take? Counterfactuals for an unplanned mission, then propose the one that works and reject it.
+const unplanned = page.locator('.mrow:has-text("not planned")').first()
+if (await unplanned.count()) {
+  await unplanned.click()
+  await page.click('text=/Find what gets/')
+  await page.waitForSelector('.whatif-row', { timeout: 120000 })
+  await idle()
+  const rows = await page.locator('.whatif-row').allTextContents()
+  step(`what would it take: ${rows.map((r) => r.slice(0, 70)).join(' || ')}`)
+  await shot('02a-what-would-it-take')
+  const go = page.locator('.whatif-row .btn')
+  if (await go.count()) {
+    await go.first().click()
+    await page.waitForSelector('.proposal-head', { timeout: 120000 })
+    await idle()
+    step(`what-if proposal: ${(await page.locator('.proposal-head h2').textContent())?.trim()}`)
+    await page.click('text=Reject')
+    await page.waitForSelector('.proposal-head', { state: 'detached', timeout: 60000 })
+    await idle()
+  }
+  await page.keyboard.press('Escape')
+}
+
 // Courses of action: compare three intents, adopt Min risk, approve; the intent then persists.
 await page.click('.intent-chip')
 await page.waitForSelector('.coa-table', { timeout: 120000 })
@@ -124,7 +147,7 @@ await page.mouse.click(5, 300)
 
 // A preset: time-sensitive target.
 await page.click('.seg button:has-text("Missions")')
-await page.click('text=Inject event')
+await page.click('.btn:has-text("Inject")')
 await page.waitForSelector('.menu-item:has-text("Time-sensitive target")', { timeout: 60000 })
 await page.click('.menu-item:has-text("Time-sensitive target")')
 await page.waitForSelector('.proposal-head', { timeout: 180000 })
@@ -133,7 +156,7 @@ step(`TST proposal: ${(await page.locator('.proposal-head .stat').first().textCo
 await approve()
 
 // Map tool: drop a medium-range SAM, show the threat surface, then reject.
-await page.click('text=Inject event')
+await page.click('.btn:has-text("Inject")')
 await page.click('.menu-item:has-text("Drop a medium-range SAM")')
 const box = await page.locator('.map-wrap').boundingBox()
 await page.mouse.move(box.x + box.width * 0.35, box.y + box.height * 0.45)
@@ -172,7 +195,7 @@ await idle()
 step(`HADR plan: ${(await page.locator('.tile').allTextContents()).map((t) => t.replace(/\s+/g, ' ')).join(' | ')}`)
 if (await page.locator('.intent-chip').count()) throw new Error('COA chip shown in HADR')
 await shot('10-hadr-plan')
-await page.click('text=Inject event')
+await page.click('.btn:has-text("Inject")')
 await page.waitForSelector('.menu-item:has-text("Embankment breach")', { timeout: 60000 })
 await page.click('.menu-item:has-text("Embankment breach")')
 await page.waitForSelector('.proposal-head', { timeout: 180000 })
@@ -180,7 +203,7 @@ await idle()
 step(`breach proposal: ${(await page.locator('.proposal-head .stat').first().textContent())?.trim()}`)
 await shot('11-hadr-breach')
 await approve()
-await page.click('text=Inject event')
+await page.click('.btn:has-text("Inject")')
 await page.click('.menu-item:has-text("Draw a thunderstorm cell")')
 const mbox = await page.locator('.map-wrap').boundingBox()
 await page.mouse.move(mbox.x + mbox.width * 0.6, mbox.y + mbox.height * 0.5)

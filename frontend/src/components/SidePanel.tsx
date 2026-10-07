@@ -239,6 +239,7 @@ function MissionCard({ view, m }: { view: View; m: Mission }) {
         <>
           <h5>Why not planned</h5>
           <ul className="why">{(plan?.unassigned[m.id] ?? ['No explanation available.']).map((w, i) => <li key={i}>{w}</li>)}</ul>
+          {!view.proposal && <WhatItTakes mission={m.id} />}
         </>
       )}
       <h5>Commander's intent</h5>
@@ -254,6 +255,47 @@ function MissionCard({ view, m }: { view: View; m: Mission }) {
           Cancel mission
         </button>
       </div>
+    </div>
+  )
+}
+
+/** Counterfactuals: single relaxations re-solved in parallel, each one a proposal away. */
+function WhatItTakes({ mission }: { mission: string }) {
+  const data = useStore((s) => s.whatIf)
+  const load = useStore((s) => s.loadWhatIf)
+  const propose = useStore((s) => s.propose)
+  const busy = useStore((s) => s.busy)
+  const mine = data?.mission === mission ? data : null
+  return (
+    <div className="whatif">
+      <h5>What would it take?</h5>
+      {!mine && (
+        <button className="btn small" disabled={!!busy} onClick={() => void load(mission)}>
+          Find what gets {mission} planned ▸
+        </button>
+      )}
+      {mine && mine.outcomes.length === 0 && <p className="muted">No single relaxation applies; see the reasons above.</p>}
+      {mine?.outcomes.map((o) => (
+        <div key={o.id} className={`whatif-row${o.planned ? '' : ' no'}`}>
+          <div className="whatif-head">
+            <span className="whatif-mark" aria-hidden>{o.planned ? '✓' : '✕'}</span>
+            <b>{o.label}</b>
+          </div>
+          <div className="muted whatif-detail">{o.detail}</div>
+          <div className="whatif-cost">
+            {o.planned
+              ? <>Planned · {o.aircraft_changes} aircraft changed · {o.dropped.length ? `drops ${o.dropped.join(', ')}` : 'nothing dropped'} ·
+                fulfilment {fmtPct(o.fulfilment_before, 1)} → {fmtPct(o.fulfilment_after, 1)}</>
+              : <>Still not planned</>}
+          </div>
+          {o.planned && (
+            <button className="btn small primary" disabled={!!busy} onClick={() => void propose(o.events, `${mission}: ${o.label}`)}>
+              Propose ▸
+            </button>
+          )}
+        </div>
+      ))}
+      {mine && <p className="muted" style={{ fontSize: 11 }}>Each option re-solved as a minimal-disruption retask in parallel ({mine.seconds} s).</p>}
     </div>
   )
 }

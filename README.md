@@ -11,10 +11,16 @@ retasking options in seconds, for a human commander to approve.
 - **UI:** [`frontend/`](frontend/) (offline COP map + synchronisation matrix + human-in-the-loop retask review +
   fog forecast + courses of action + robustness + flood-relief scenario)
 - **Idea deck:** [`docs/VAYU-SARTHI_SIH2026_idea.pptx`](docs/VAYU-SARTHI_SIH2026_idea.pptx) (rebuild with
-  `python -I tools/build_deck.py` after `npm run e2e`); demo video: `npm run demo-video` in `frontend/`
+  `python -I tools/build_deck.py` after `npm run e2e`; PDF preview alongside)
+- **Demo video (backup):** [`docs/media/VAYU-SARTHI_demo.mp4`](docs/media/VAYU-SARTHI_demo.mp4), a captioned 3-minute
+  walkthrough recorded against the live engine (re-record with `npm run demo-video` in `frontend/`)
 
 ```bash
-./run.sh          # builds the UI once, then serves everything at http://127.0.0.1:8000
+./run.sh          # Linux/macOS: builds the UI once, then serves everything at http://127.0.0.1:8000
+run.bat           # Windows: double-click (or: powershell -ExecutionPolicy Bypass -File run.ps1)
 ```
+
+Needs Python 3.11+ and Node.js 20+. After the first install everything runs offline on one laptop. It is laid out
+for 1280×720 projectors and up.
 
 All scenario data is notional.

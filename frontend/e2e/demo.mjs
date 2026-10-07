@@ -109,11 +109,18 @@ if (await unplanned.count()) {
   await unplanned.click()
   await caption('Every unplanned mission says why', 'e.g. least-risk route above the acceptable risk; a SEAD package would open options')
   await wait(5000)
+  await caption('…and what it would take', 'Single relaxations re-solved in parallel, each with its price')
+  await page.click('text=/Find what gets/')
+  await page.waitForSelector('.whatif-row', { timeout: 120000 })
+  await idle()
+  await caption('Accept a little more risk: planned, 2 aircraft changed, nothing dropped',
+    'The machine shows the price; the commander decides whether to pay it')
+  await wait(6500)
   await page.keyboard.press('Escape')
 }
 
 // 4. Pop-up SAM.
-await page.click('text=Inject event')
+await page.click('.btn:has-text("Inject")')
 await page.click('.menu-item:has-text("Drop a medium-range SAM")')
 const box = await page.locator('.map-wrap').boundingBox()
 await page.mouse.move(box.x + box.width * 0.35, box.y + box.height * 0.45)
@@ -133,7 +140,7 @@ await idle()
 
 // 5. Time-sensitive target.
 await caption('New tasking: a time-sensitive target, priority 10', 'Re-optimising with minimal disruption')
-await page.click('text=Inject event')
+await page.click('.btn:has-text("Inject")')
 await page.waitForSelector('.menu-item:has-text("Time-sensitive target")', { timeout: 60000 })
 await page.click('.menu-item:has-text("Time-sensitive target")')
 await page.waitForSelector('.proposal-head', { timeout: 180000 })
@@ -211,7 +218,7 @@ await caption('Same engine, flood relief in Assam and Bihar',
   'NDRF lift to forward airfields, helicopter rescue and relief drops where there is no runway, Indian airspace only')
 await wait(7000)
 await caption('An embankment breach is reported: about 60 people marooned')
-await page.click('text=Inject event')
+await page.click('.btn:has-text("Inject")')
 await page.waitForSelector('.menu-item:has-text("Embankment breach")', { timeout: 60000 })
 await page.click('.menu-item:has-text("Embankment breach")')
 await page.waitForSelector('.proposal-head', { timeout: 180000 })

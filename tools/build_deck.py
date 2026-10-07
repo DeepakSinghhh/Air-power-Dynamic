@@ -48,7 +48,7 @@ R = {
     "hadr_fulfil": ("85.1%", "96.3%"),
     "hadr_t": ("81.6%", "94.5%"),
     "coa_loss": ("5.81", "3.01"),
-    "tests": "28",
+    "tests": "29",
 }
 
 
@@ -232,7 +232,7 @@ def slide_solution(prs):
     section(s, 0.5, 5.45, 6.8, "Innovation and uniqueness")
     bullets(s, 0.5, 5.73, 6.9, 1.15, [
         "A minimal-disruption diff, not a fresh plan · one integrated optimiser, not seven silos",
-        "A reason for every unplanned mission · intel-age-aware routing · intent-aware COAs",
+        "Why not, and what it would take, for every unplanned mission · intel-age-aware routing · COAs",
         "Air-gapped and indigenous · the same engine plans flood relief (HADR)",
     ], size=11.5, gap=3)
     pic = picture(s, SHOTS / "04-fog-proposal.png", 7.75, 1.4, w=5.05)
@@ -413,7 +413,7 @@ def slide_references(prs):
         "Airfield and district headquarters coordinates (public)",
         "",
         "This submission",
-        "Working prototype: engine, map, synchronisation matrix, retask review, fog forecast, COAs, robustness, HADR",
+        "Working prototype: engine, map, synchronisation matrix, retask review, why-not and what-it-would-take, fog forecast, COAs, robustness, HADR",
         "Design and roadmap: docs/PLAN.md · all scenario data notional",
     ]
 

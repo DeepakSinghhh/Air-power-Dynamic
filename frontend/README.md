@@ -20,7 +20,7 @@ Demo video (backup for the live demo): with the server running, `npm run demo-vi
 walkthrough of docs/PLAN.md section 11 to `e2e/video/demo.mp4` (Playwright + ffmpeg; everything solves live).
 
 Checks: `npm run typecheck`, `npm run build`, and with the server running `npm run e2e`
-(Playwright: plan → COA compare → adopt Min risk → approve → intent persists → robustness → ground spares → approve →
+(Playwright: plan → what would it take → propose → reject → COA compare → adopt Min risk → approve → intent persists → robustness → ground spares → approve →
 what-if aircraft lost → reject → fog forecast → propose closures →
 approve → no duplicate closures → threshold change → time-sensitive target → drop SAM + threat surface → base fog
 card → playback → flood-relief scenario → breach rescue → approve → thunderstorm cell; fails on any console error and
@@ -81,6 +81,10 @@ saves a failure screenshot).
 - Thunderstorm cells are dashed circles that routes avoid. *Inject event → Draw a thunderstorm cell* places one, and the
   HADR presets add a breach rescue, rain at the busiest airfield, a cell on a route, helicopters U/S and a cancelled
   road convoy. Mission cards show the landing constraint (runway length, or helicopters only).
+
+**What would it take?** On an unplanned mission's card, *Find what gets … planned* tries single relaxations in
+parallel: accept more route risk, raise to P10, widen the TOT window, resupply weapons. Each comes back with its
+cost (aircraft changed, missions dropped, fulfilment before/after) and a **Propose** button.
 
 **Retask workflow (human in the loop)**: Inject event → proposal (diff, *naive re-plan would change N*,
 KPI deltas vs current plan) → **Approve & issue** or **Reject**. Every decision is logged.

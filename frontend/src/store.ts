@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { create } from 'zustand'
 
 import { api } from './api'
-import type { AppState, CoaResponse, EngineEvent, Hazard, MetResponse, MetSource, Preset, Proposal, RobustnessResponse, ScenarioKind, Selection } from './types'
+import type { AppState, CoaResponse, EngineEvent, Hazard, MetResponse, MetSource, Preset, Proposal, RobustnessResponse, ScenarioKind, Selection, WhatIfResponse } from './types'
 
 export interface Layers {
   hazard: boolean
@@ -68,6 +68,8 @@ interface Store {
   loadRobust: () => Promise<void>
   proposeSpares: () => Promise<void>
   whatIfLost: (tail: string) => Promise<void>
+  whatIf: WhatIfResponse | null
+  loadWhatIf: (mission: string) => Promise<void>
 }
 
 const PLAN_SECONDS = 10
@@ -88,7 +90,7 @@ export const useStore = create<Store>((set, get) => {
 
   const commit = (app: AppState) => {
     // Any committed change makes computed COAs stale.
-    set((s) => ({ app, proposal: null, presets: null, coas: null, robust: null, viewTime: Math.max(s.viewTime, app.world.now) }))
+    set((s) => ({ app, proposal: null, presets: null, coas: null, robust: null, whatIf: null, viewTime: Math.max(s.viewTime, app.world.now) }))
     // The fog model is trained on north Indian winter fog; it does not apply to the monsoon flood scenario.
     if (app.world.scenario === 'hadr') set({ met: null })
     else void get().loadMet()
@@ -120,6 +122,7 @@ export const useStore = create<Store>((set, get) => {
     coaOpen: false,
     robust: null,
     robustOpen: false,
+    whatIf: null,
 
     init: async () => {
       await run('Loading operational picture', async () => {
@@ -209,6 +212,12 @@ export const useStore = create<Store>((set, get) => {
     },
 
     setRobustOpen: (robustOpen) => set({ robustOpen }),
+
+    loadWhatIf: async (mission) => {
+      set({ whatIf: null })
+      const r = await run(`What would get ${mission} planned?`, () => api.whatIf(mission, 3))
+      if (r) set({ whatIf: r })
+    },
 
     loadRobust: async () => {
       const r = await run('Simulating 2,000 executions of the plan', () => api.robustness(2000))

@@ -100,6 +100,43 @@ class StockLoss(_Event):
         return f"{self.qty}x {self.weapon} lost at {w.bases[self.base].name}"
 
 
+class RiskAcceptance(_Event):
+    """Commander accepts more (or less) route risk for one mission."""
+    kind: Literal["risk_acceptance"] = "risk_acceptance"
+    mission: str
+    max_risk: float
+
+    def apply(self, w: World) -> str:
+        m = w.missions[self.mission]
+        old, m.max_risk = m.max_risk, max(0.0, min(0.95, self.max_risk))
+        return f"{self.mission} acceptable route risk {old:.0%} -> {m.max_risk:.0%}"
+
+
+class WindowChange(_Event):
+    """The supported commander widens or moves a mission's time-on-target window."""
+    kind: Literal["window_change"] = "window_change"
+    mission: str
+    tot_earliest: int
+    tot_latest: int
+
+    def apply(self, w: World) -> str:
+        m = w.missions[self.mission]
+        m.tot_earliest, m.tot_latest = max(w.now, self.tot_earliest), max(w.now, self.tot_latest)
+        return f"{self.mission} TOT window {fmt_time(m.tot_earliest)}-{fmt_time(m.tot_latest)}"
+
+
+class Resupply(_Event):
+    kind: Literal["resupply"] = "resupply"
+    base: str
+    weapon: str
+    qty: int
+
+    def apply(self, w: World) -> str:
+        s = w.bases[self.base].stocks
+        s[self.weapon] = s.get(self.weapon, 0) + self.qty
+        return f"{self.qty}x {self.weapon} delivered to {w.bases[self.base].name}"
+
+
 class NewZone(_Event):
     """Airspace to avoid from now on: a thunderstorm cell, a temporary restriction."""
     kind: Literal["new_zone"] = "new_zone"
@@ -111,7 +148,7 @@ class NewZone(_Event):
 
 
 Event = Annotated[Union[BaseClosure, AircraftDown, CrewDown, NewThreat, NewMission, CancelMission,
-                        PriorityChange, StockLoss, NewZone],
+                        PriorityChange, StockLoss, NewZone, RiskAcceptance, WindowChange, Resupply],
                   Field(discriminator="kind")]
 
 

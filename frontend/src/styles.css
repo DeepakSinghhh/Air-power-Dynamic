@@ -279,6 +279,25 @@ table.mini tr.clickable:hover td { background: var(--surface-2); }
   .tile { min-width: 96px; }
 }
 
+/* Laptops and projectors (up to 1700 px): keep every KPI tile visible. Each tile's tooltip names the reference,
+   and the first tile still says it in full. */
+@media (max-width: 1700px) {
+  .wide-only { display: none; }
+  .brand span { display: none; }
+  .topbar { gap: 12px; padding: 6px 10px; }
+  .clock b { font-size: 16px; }
+  .kpis { gap: 4px; }
+  .tile { min-width: 0; padding: 4px 8px; flex: 0 1 auto; }
+  .tile b { font-size: 15px; }
+  .tile .ref { display: none; }
+  .tile:first-child .ref { display: inline; }
+  .actions { gap: 6px; }
+}
+@media (max-width: 1320px) {
+  .tile-sorties { display: none; }
+  .tile:first-child .ref { display: none; }
+}
+
 /* ---------- weather ---------- */
 .wx-menu { width: 600px; }
 .wx-rows { display: grid; gap: 2px; padding: 4px 8px; }
@@ -325,3 +344,13 @@ table.mini tr.clickable:hover td { background: var(--surface-2); }
 .legend-inline span { display: inline-flex; align-items: center; gap: 6px; }
 .legend-inline .sw-bar { width: 12px; height: 10px; background: rgba(195, 194, 183, 0.35); display: inline-block; }
 .legend-inline .sw-line { width: 16px; height: 2px; display: inline-block; }
+
+/* ---------- what would it take? ---------- */
+.whatif .btn { margin-top: 2px; }
+.whatif-row { background: var(--surface-2); border-radius: 6px; padding: 6px 8px; margin: 6px 0; }
+.whatif-row.no { opacity: 0.7; }
+.whatif-head { display: flex; gap: 6px; align-items: baseline; font-size: 13px; }
+.whatif-mark { font-weight: 700; width: 12px; }
+.whatif-detail { font-size: 11px; margin: 1px 0 3px 18px; }
+.whatif-cost { font-size: 12px; color: var(--ink-2); margin: 0 0 4px 18px; }
+.whatif-row .btn { margin-left: 18px; }

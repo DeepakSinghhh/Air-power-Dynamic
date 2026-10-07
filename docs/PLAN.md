@@ -313,8 +313,19 @@ three hours ahead, plus a retask diff, is the strongest "predictive analytics" s
 - **Reason codes** for each screened-out option, aggregated per mission.
 - **Competition** explanation: "11 of 52 feasible aircraft are committed to STK-03 (P8)…".
 - **Counterfactual hints**: least-risk route vs ceiling, stock exhausted at which bases, tanker bottleneck.
-- **Next:** CP-SAT assumption literals to extract a *minimal set of constraints* blocking a mission
-  (an unsat core), and "what would it take" queries such as re-solving with +1 tanker or risk ceiling +5%.
+- **What would it take?** (built: `whatif.py`) Counterfactuals for an unplanned mission. The engine tries single
+  relaxations and re-solves each as a minimal-disruption retask, in parallel (~5 s):
+  - accept route risk up to the next 5% step above the least-risk route;
+  - raise the mission to P10;
+  - widen the time-on-target window by an hour each side;
+  - resupply weapons to the base whose aircraft could otherwise fly it.
+
+  A strike blocked by its unplanned SEAD gets the SEAD's relaxations. Each answer gives the cost (aircraft changed,
+  missions dropped, fulfilment before/after) and is one click from a normal proposal. Example: *STK-06: accept route
+  risk up to 40% (now 30%; least-risk route 33%) → planned, 2 aircraft changed, nothing dropped, fulfilment 95.3% →
+  97.9%*. Raising it to P10 or widening its window would not help.
+- **Next:** CP-SAT assumption literals to extract a *minimal set of constraints* blocking a mission (an unsat core),
+  and an extra-tanker relaxation.
 
 ### 6.8 Robustness and ground spares (built: `robust.py`)
 **One success model.** A planned mission succeeds only if every package slot launches with a mission-capable
@@ -443,9 +454,10 @@ Run everything with `./run.sh`, then open http://127.0.0.1:8000. It works offlin
 | Robustness | 2,000 simulated executions (no replanning): distribution current vs with ground spares, p05/p50/p95, what fails most and why, single points of failure with **What if?** → retask proposal; **Propose ground spares** → approve; spares drawn as dashed bars in the aircraft view |
 | Flood relief (HADR) | Scenario ▾ → Flood relief: monsoon flood day in Assam and Bihar; *Relief lifted* tile; thunderstorm cells (and a map tool to draw one); breach / rain / cell / helicopters U/S / convoy presets |
 | Courses of action | Intent chip in the top bar → three COAs solved in parallel (~6 s): losses-vs-fulfilment scatter, one computed trade sentence per COA, table (fulfilment, expected value, losses, worst sortie risk, sorties, guided weapons, fighters on the ground, p05 robustness) → **Adopt** = a normal proposal |
+| What would it take? | On an unplanned mission's card: single relaxations (risk, priority, window, resupply) re-solved in parallel; each with its cost and a **Propose** button |
 | Detail cards | Mission (package, crews, "why not planned", raise priority, cancel), base (readiness, stocks, close it), threat (intel age, routes in reach), aircraft (P(serviceable), sorties, ground it) |
 
-**Engine (`engine/`, Python + OR-Tools CP-SAT, 28 passing tests):**
+**Engine (`engine/`, Python + OR-Tools CP-SAT, 29 passing tests):**
 
 | Module | Status |
 |---|---|
@@ -459,6 +471,7 @@ Run everything with `./run.sh`, then open http://127.0.0.1:8000. It works offlin
 | `scenario_hadr.py` | Flood-relief scenario: runway-aware airlift, helicopter rescue, domestic airspace, thunderstorm cells (6.10) |
 | `retask.py`, `events.py`, `presets.py` | Events (closure, aircraft/crew down, pop-up threat, new/cancelled mission, priority change, stock loss) → retask → diff |
 | `explain.py` | "Why not?" explanations |
+| `whatif.py` | "What would it take?" counterfactuals: single relaxations re-solved in parallel (6.7) |
 | `kpi.py` | KPIs, COA trade-off metrics |
 | `robust.py` | Mission success model (serviceability with spares, tankers, SEAD → strike, ingress risk), Monte Carlo execution, single points of failure, ground spares (6.8) |
 | `coa.py` | Three courses of action from commander's intent, solved in parallel as least-disruptive retasks (6.9) |
@@ -575,8 +588,9 @@ Steps marked ▶ work in the current build (`./run.sh`). The others need the 9.0
 2. ▶ **(0:45) Plan.** Scenario ▾ → *Generate & plan*. In under 10 s the KPI tiles show ~96% priority-weighted
    fulfilment, with the green delta against the manual-style plan. Click a strike in the list: its route
    lights up on the map, its SEAD arrow shows in the sync matrix, and the package and crews appear in the card.
-3. ▶ **(1:45) Why not?** Click an unplanned mission (hollow marker): *"Least-risk route 33% vs acceptable 30%;
-   a SEAD package would open options."*
+3. ▶ **(1:45) Why not, and what would it take?** Click an unplanned mission (hollow marker): *"Least-risk route 33% vs
+   acceptable 30%; a SEAD package would open options."* Then *Find what gets STK-06 planned*: "accept 40% risk → planned,
+   2 aircraft changed, nothing dropped". The machine shows the price; the commander decides whether to pay it.
 4. ▶ **(2:30) Fog, predicted.** Open *Weather*. "This is a real night: 3 Feb 2026, from a winter the model
    never saw." Point at Hindan, where Delhi airport's observed fog (white ticks) sits under the forecast bars. "Raw
    model visibility catches about a quarter of fog hours; our model catches 70%." Pick the risk threshold, then
