@@ -75,3 +75,48 @@ def mask_to_intervals(times: np.ndarray, ok: np.ndarray, step: int) -> Intervals
 
 def ceil_div(a: float, b: float) -> int:
     return int(math.ceil(a / b))
+
+
+# --- India outline (Natural Earth 10m admin-0, India point of view) -------------------------
+
+_INDIA: list[np.ndarray] | None = None
+
+
+def _india_rings() -> list[np.ndarray]:
+    global _INDIA
+    if _INDIA is None:
+        import json
+        from pathlib import Path
+        data = json.loads((Path(__file__).parent / "data" / "india.json").read_text())
+        _INDIA = [np.asarray(r, dtype=float) for r in data["rings"]]
+    return _INDIA
+
+
+def in_india(lat, lon):
+    """Point-in-polygon (even-odd ray casting); works on floats or numpy arrays."""
+    lat, lon = np.broadcast_arrays(np.asarray(lat, dtype=float), np.asarray(lon, dtype=float))
+    shape = lat.shape
+    la, lo = lat.ravel(), lon.ravel()
+    inside = np.zeros(la.shape, dtype=bool)
+    for r in _india_rings():
+        x1, y1 = r[:, 0], r[:, 1]
+        x2, y2 = np.roll(x1, -1), np.roll(y1, -1)
+        keep = y1 != y2
+        x1, y1, x2, y2 = x1[keep], y1[keep], x2[keep], y2[keep]
+        if la.size <= 256:  # few points: vectorise across edges
+            crosses = (y1 > la[:, None]) != (y2 > la[:, None])
+            xint = (x2 - x1) * (la[:, None] - y1) / (y2 - y1) + x1
+            inside ^= (np.count_nonzero(crosses & (lo[:, None] < xint), axis=1) % 2).astype(bool)
+        else:               # many points: vectorise across points
+            for a, b, c, d in zip(x1, y1, x2, y2):
+                inside ^= ((b > la) != (d > la)) & (lo < (c - a) * (la - b) / (d - b) + a)
+    inside = inside.reshape(shape)
+    return bool(inside) if inside.ndim == 0 else inside
+
+
+def ring_offsets(lat: float, lon: float, km: float, n: int = 8) -> tuple[np.ndarray, np.ndarray]:
+    """n points at distance km around (lat, lon)."""
+    ang = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    dlat = km / 111.32 * np.cos(ang)
+    dlon = km / (111.32 * np.cos(np.radians(lat))) * np.sin(ang)
+    return lat + dlat, lon + dlon

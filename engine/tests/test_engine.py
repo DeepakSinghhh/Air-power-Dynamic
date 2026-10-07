@@ -101,3 +101,31 @@ def test_popup_threat_raises_or_reroutes(planned):
     assert res.plan.status in ("OPTIMAL", "FEASIBLE")
     assert validate(res.world, res.plan, candidates.build(res.world),
                     optimizer.frozen_missions(res.world, res.plan)) == []
+
+
+def test_frozen_tanker_is_not_double_booked():
+    """A tanker committed to a launched package must stay unavailable to later retasks."""
+    from sarthi.events import PriorityChange
+    from sarthi.models import Aircraft, Base, Mission, Role, World
+    from sarthi.scenario import TYPES
+
+    bases = {"B": Base(id="B", name="Fighter base", lat=28.0, lon=77.0, stocks={"PGM": 20}),
+             "T": Base(id="T", name="Tanker base", lat=28.0, lon=77.5)}
+    aircraft = {f"F{i}": Aircraft(tail=f"F{i}", type="TEJAS", base="B") for i in range(4)}
+    aircraft["K1"] = Aircraft(tail="K1", type="TANKER", base="T")
+    crews = {f"C{i}": Crew(id=f"C{i}", base="B", qualified="TEJAS", wake_time=300, sleep_hours=8) for i in range(6)}
+    # ~650 km north: beyond a TEJAS's 500 km radius, inside its AAR-extended reach.
+    strike = dict(role=Role.STRIKE, lat=33.85, lon=77.0, package=2, weapon="PGM", weapons_per_aircraft=2)
+    missions = {"A": Mission(id="A", priority=6, tot_earliest=600, tot_latest=600, **strike),
+                "B2": Mission(id="B2", priority=5, tot_earliest=700, tot_latest=760, **strike)}
+    world = World(bases=bases, types=dict(TYPES), aircraft=aircraft, crews=crews, missions=missions)
+
+    plan = optimizer.solve(world, time_limit=5)
+    assert "A" in plan.assignments and plan.assignments["A"].tankers == ["K1"]
+    assert "B2" not in plan.assignments  # one tanker, overlapping tanker sorties
+    launch_a = min(s.launch for s in plan.assignments["A"].sorties)
+    res = retask(world, plan, [PriorityChange(at=launch_a + 5, mission="B2", priority=10)], 5)
+    assert res.plan.assignments["A"] == plan.assignments["A"]  # frozen
+    assert "B2" not in res.plan.assignments  # cannot steal the committed tanker
+    assert validate(res.world, res.plan, candidates.build(res.world),
+                    optimizer.frozen_missions(res.world, res.plan)) == []

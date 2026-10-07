@@ -170,6 +170,17 @@ def build(world: World, fields: dict[frozenset, RiskField] | None = None) -> Can
     return cands
 
 
+def tanker_sortie(world: World, tc: TankerCand, tot: int):
+    """Concrete tanker sortie: launch, recovery and a track halfway between its base and the target."""
+    from .models import Sortie
+    a = world.aircraft[tc.tail]
+    b, m = world.bases[a.base], world.missions[tc.mission]
+    mid = ((b.lat + m.lat) / 2, (b.lon + m.lon) / 2)
+    return Sortie(tail=tc.tail, base=a.base, launch=tot - tc.lead, recover=tot + tc.trail,
+                  route_km=round(haversine_km(b.lat, b.lon, *mid), 1), risk=0.0,
+                  route=[(b.lat, b.lon), (round(mid[0], 3), round(mid[1], 3))])
+
+
 def _suppression(world: World, mission_id: str) -> dict[str, float]:
     """Threat Pk multipliers that apply to a mission's route.
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 import time
 from collections import defaultdict
 
-from .candidates import BRIEF_MIN, CREW_REST_MIN, DEBRIEF_MIN, Candidates, build
+from .candidates import BRIEF_MIN, CREW_REST_MIN, DEBRIEF_MIN, Candidates, build, tanker_sortie
 from .explain import explain_unassigned
 from .geo import contains
 from .models import Assignment, Plan, Role, Sortie, World
@@ -72,7 +72,8 @@ def solve(world: World, cands: Candidates | None = None) -> Plan:
             for tc in tankers:
                 ac_busy[tc.tail].append((t - tc.lead, t + tc.trail + tc.turnaround))
             plan.assignments[m.id] = Assignment(mission=m.id, tot=t, sorties=[s for s, _ in sorties],
-                                                tankers=[tc.tail for tc in tankers])
+                                                tankers=[tc.tail for tc in tankers],
+                                                tanker_sorties=[tanker_sortie(world, tc, t) for tc in tankers])
             break
     plan.solve_seconds = round(time.perf_counter() - t0, 3)
     plan.unassigned = explain_unassigned(world, cands, plan)

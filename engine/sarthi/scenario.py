@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import random
 
+from .geo import haversine_km, in_india, ring_offsets
 from .models import (Aircraft, AircraftType, Base, Crew, Mission, RestrictedZone, Role, Threat,
                      World)
 
@@ -51,8 +52,11 @@ BASES = [
     ("LEH", "Leh", 34.136, 77.546, {}, {}, 0),
 ]
 
-RED_BOX = (28.6, 34.0, 70.8, 74.1)        # notional adversary area (lat0, lat1, lon0, lon1)
-BLUE_FWD_BOX = (29.0, 33.0, 74.9, 75.9)   # notional own-side forward area for DCA/CAS
+# Sampling boxes (lat0, lat1, lon0, lon1); points are then filtered against India's boundary.
+RED_BOX = (27.6, 32.6, 69.5, 74.6)        # notional adversary area: >= RED_STANDOFF_KM outside India
+BLUE_FWD_BOX = (29.0, 33.0, 74.6, 76.2)   # own-side forward area for CAP stations (inside India)
+CAS_BOX = (29.5, 32.8, 73.4, 75.2)        # troops in contact: inside India, near the boundary
+RED_STANDOFF_KM = 30.0
 
 THREAT_KINDS = {  # kind: (radius_km, pk, relocation km/h)
     "SAM-LR": (110.0, 0.55, 0.0),
@@ -61,8 +65,33 @@ THREAT_KINDS = {  # kind: (radius_km, pk, relocation km/h)
 }
 
 
-def _pt(rng: random.Random, box) -> tuple[float, float]:
+def _uniform(rng: random.Random, box) -> tuple[float, float]:
     return round(rng.uniform(box[0], box[1]), 3), round(rng.uniform(box[2], box[3]), 3)
+
+
+def red_point(rng: random.Random) -> tuple[float, float]:
+    """Notional adversary location, at least RED_STANDOFF_KM outside India."""
+    while True:
+        lat, lon = _uniform(rng, RED_BOX)
+        if not in_india(lat, lon) and not in_india(*ring_offsets(lat, lon, RED_STANDOFF_KM)).any():
+            return lat, lon
+
+
+def blue_point(rng: random.Random, box=BLUE_FWD_BOX, margin_km: float = 25.0) -> tuple[float, float]:
+    """Own-side location inside India, at least margin_km from the boundary."""
+    while True:
+        lat, lon = _uniform(rng, box)
+        if in_india(lat, lon) and in_india(*ring_offsets(lat, lon, margin_km)).all():
+            return lat, lon
+
+
+def border_point(rng: random.Random, max_km: float = 35.0) -> tuple[float, float]:
+    """Inside India and within max_km of the boundary (close air support)."""
+    while True:
+        lat, lon = _uniform(rng, CAS_BOX)
+        if in_india(lat, lon) and in_india(*ring_offsets(lat, lon, 8.0)).all() \
+                and not in_india(*ring_offsets(lat, lon, max_km)).all():
+            return lat, lon
 
 
 def generate(seed: int = 7, n_strike: int = 10, n_dca: int = 5, n_cas: int = 4, n_isr: int = 3,
@@ -98,13 +127,13 @@ def generate(seed: int = 7, n_strike: int = 10, n_dca: int = 5, n_cas: int = 4, 
         missions[m.id] = m
 
     for k in range(n_dca):
-        lat, lon = _pt(rng, BLUE_FWD_BOX)
+        lat, lon = blue_point(rng)
         start = rng.randrange(0, 1200, 30)
         add(Mission(id=f"DCA-{k + 1:02d}", role=R.DCA, priority=rng.randint(6, 9), lat=lat, lon=lon,
                     tot_earliest=start, tot_latest=start + 60, on_station_min=120, package=2,
                     weapon="BVR", weapons_per_aircraft=4, max_risk=0.25, label="CAP station"))
     for k in range(2):
-        lat, lon = _pt(rng, BLUE_FWD_BOX)
+        lat, lon = blue_point(rng, margin_km=60.0)
         start = 0 if k == 0 else 720
         add(Mission(id=f"AEW-{k + 1:02d}", role=R.AEW, priority=8, lat=lat, lon=lon,
                     tot_earliest=start, tot_latest=start + 90, on_station_min=300, package=1,
@@ -112,7 +141,7 @@ def generate(seed: int = 7, n_strike: int = 10, n_dca: int = 5, n_cas: int = 4, 
 
     sead_n = 0
     for k in range(n_strike):
-        lat, lon = _pt(rng, RED_BOX)
+        lat, lon = red_point(rng)
         start = rng.randrange(120, 1200, 15)
         mid = f"STK-{k + 1:02d}"
         strike = Mission(id=mid, role=R.STRIKE, priority=rng.randint(4, 10), lat=lat, lon=lon,
@@ -134,13 +163,13 @@ def generate(seed: int = 7, n_strike: int = 10, n_dca: int = 5, n_cas: int = 4, 
         add(strike)
 
     for k in range(n_cas):
-        lat, lon = _pt(rng, (BLUE_FWD_BOX[0], BLUE_FWD_BOX[1], 74.4, 74.9))
+        lat, lon = border_point(rng)
         start = rng.randrange(300, 1200, 15)
         add(Mission(id=f"CAS-{k + 1:02d}", role=R.CAS, priority=rng.randint(5, 8), lat=lat, lon=lon,
                     tot_earliest=start, tot_latest=start + 45, on_station_min=30, package=2,
                     weapon="LGB", weapons_per_aircraft=2, max_risk=0.30, label="Troops in contact"))
     for k in range(n_isr):
-        lat, lon = _pt(rng, RED_BOX)
+        lat, lon = red_point(rng)
         start = rng.randrange(0, 900, 30)
         add(Mission(id=f"ISR-{k + 1:02d}", role=R.ISR, priority=rng.randint(3, 6), lat=lat, lon=lon,
                     tot_earliest=start, tot_latest=start + 120, on_station_min=240, package=1,
@@ -162,10 +191,9 @@ def generate(seed: int = 7, n_strike: int = 10, n_dca: int = 5, n_cas: int = 4, 
 
 def _threat(rng: random.Random, tid: str, kind: str) -> Threat:
     radius, pk, mobile = THREAT_KINDS[kind]
-    lat, lon = _pt(rng, RED_BOX)
+    lat, lon = red_point(rng)
     return Threat(id=tid, kind=kind, lat=lat, lon=lon, radius_km=radius, pk=pk, mobile_kmh=mobile)
 
 
 def _dist(t: Threat, lat: float, lon: float) -> float:
-    from .geo import haversine_km
     return haversine_km(t.lat, t.lon, lat, lon)

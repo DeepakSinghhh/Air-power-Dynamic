@@ -74,6 +74,17 @@ class CancelMission(_Event):
         return f"{self.mission} cancelled"
 
 
+class PriorityChange(_Event):
+    kind: Literal["priority_change"] = "priority_change"
+    mission: str
+    priority: int
+
+    def apply(self, w: World) -> str:
+        m = w.missions[self.mission]
+        old, m.priority = m.priority, max(1, min(10, self.priority))
+        return f"{self.mission} priority P{old} -> P{m.priority} (commander's intent)"
+
+
 class StockLoss(_Event):
     kind: Literal["stock_loss"] = "stock_loss"
     base: str
@@ -86,7 +97,8 @@ class StockLoss(_Event):
         return f"{self.qty}x {self.weapon} lost at {w.bases[self.base].name}"
 
 
-Event = Annotated[Union[BaseClosure, AircraftDown, CrewDown, NewThreat, NewMission, CancelMission, StockLoss],
+Event = Annotated[Union[BaseClosure, AircraftDown, CrewDown, NewThreat, NewMission, CancelMission,
+                        PriorityChange, StockLoss],
                   Field(discriminator="kind")]
 
 

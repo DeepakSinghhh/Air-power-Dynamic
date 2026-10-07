@@ -14,7 +14,6 @@ def validate(world: World, plan: Plan, cands: Candidates, frozen: set[str] = fro
     crew_n, crew_min = defaultdict(int), defaultdict(int)
     use = defaultdict(int)
     fighter_iv = defaultdict(list)
-    tk = {(tc.mission, tc.tail): tc for lst in cands.tankers.values() for tc in lst}
 
     for mid, a in plan.assignments.items():
         m = world.missions[mid]
@@ -67,12 +66,10 @@ def validate(world: World, plan: Plan, cands: Candidates, frozen: set[str] = fro
             crew_n[s.crew] += 1
             crew_min[s.crew] += s.recover - s.launch
         cap = 0
-        for tail in a.tankers:
-            tc = tk.get((mid, tail))
-            if tc is None:
-                continue  # frozen tanker from an earlier candidate set
-            cap += tc.capacity
-            ac_iv[tail].append((a.tot - tc.lead, a.tot + tc.trail + tc.turnaround, mid))
+        for ts in a.tanker_sorties:
+            t = world.types[world.aircraft[ts.tail].type]
+            cap += t.aar_receivers
+            ac_iv[ts.tail].append((ts.launch, ts.recover + t.turnaround_min, mid))
         if live and receivers > cap:
             errs.append(f"{mid}: {receivers} receivers need AAR, tanker capacity {cap}")
 

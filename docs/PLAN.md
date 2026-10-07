@@ -17,8 +17,8 @@ this repo (`engine/`):
 
 1. **Minimal-disruption retasking.** When something changes, we don't regenerate the ATO. We compute the
    *smallest set of changes* that recovers the most mission value, and show it as a reviewable
-   "diff" of the plan. Measured on 8 scenarios: **74% fewer aircraft reassignments than a re-plan
-   from scratch, in 1.7 s, with almost no loss of mission value.**
+   "diff" of the plan. Measured on 8 scenarios: **66% fewer aircraft reassignments than a re-plan
+   from scratch (12.8 vs 37.5), in 1.7 s, with almost no loss of mission value.**
 2. **One integrated model, not seven silos.** Aircraft, crew fatigue, weapons, tankers, weather,
    threats, airspace and alert reserves are all in a single optimisation, so cascades are handled
    automatically. A pop-up SAM triggers a reroute, which lengthens the route, which needs a
@@ -29,9 +29,9 @@ this repo (`engine/`):
    optimiser *before* the disruption hits. Combined with offline/DDIL operation, air-gapped AI and
    human-in-the-loop approval, it is something the IAF could plausibly field.
 
-Measured against a greedy "manual planner" baseline over 20 random scenarios (32–40 missions,
-96 aircraft, ~160 crews): **+12.4 pts priority-weighted mission fulfilment (84.2% → 96.6%)
-and +15.2 pts expected mission value**. Every plan passes an independent constraint checker.
+Measured against a greedy "manual planner" baseline over 20 random scenarios (33–39 missions,
+96 aircraft, ~160 crews): **+12.4 pts priority-weighted mission fulfilment (85.1% → 97.5%)
+and +15.4 pts expected mission value**. Every plan passes an independent constraint checker.
 
 ---
 
@@ -258,9 +258,12 @@ padding packages. The greedy baseline is used as a warm-start hint, so the optim
 - **SEAD coupling:** a strike that depends on a SEAD mission is routed with the suppressed SAM's
   Pk ×0.25, which is why the solver schedules SEAD 5–30 min before the strike.
 - Restricted airspace (civil terminal areas / FUA) is blocked from the graph.
+- **Any-angle smoothing (built):** after Dijkstra, string pulling replaces grid zig-zags with straight
+  legs wherever a leg costs no more (km + β·hazard) than the grid path and avoids restricted airspace.
+  Risk and distance are recomputed on the smoothed path, so the numbers stay honest.
 - **Next:** terrain masking. Compute radar viewsheds from SRTM / Copernicus GLO-30 DEM at 3 altitude bands
   and do a 3-D layered search. Low-level ingress lowers detection but burns more fuel, which couples back
-  into range and tanker needs. Also add Theta* path smoothing.
+  into range and tanker needs.
 
 ### 6.6 Predictive layer
 | Model | Method | Output into optimiser | Data |
@@ -320,37 +323,48 @@ Ship every real feed with a cached snapshot, so the demo never depends on venue 
 
 ## 8. What is already built (in this repo)
 
-`engine/`: Python, OR-Tools CP-SAT, 11 passing tests. Run it with `python -m sarthi.demo`.
+Run everything with `./run.sh`, then open http://127.0.0.1:8000. It works offline on one laptop.
+
+**UI (`frontend/`, React + deck.gl, verified end-to-end in a browser):**
+
+| Screen | What it shows |
+|---|---|
+| COP map | Offline basemap with India's boundary as officially depicted; bases by readiness status; SAM envelopes with intel-age halos; optional threat surface; routes and objectives by mission family; tanker tracks; aircraft moving along routes with the timeline cursor; click-to-drop a pop-up SAM |
+| Sync matrix | *Missions* view (TOT windows, packages, TOT diamonds, SEAD → strike arrows) and *Aircraft* view (lanes by base, turnaround, closures, U/S); NOW line + draggable view time + playback |
+| Retask review | Inject an event (6 context-aware presets or map tools) → proposal with diff, **"naive re-plan would change N"**, KPI deltas → Approve / Reject → decision log |
+| Detail cards | Mission (package, crews, "why not planned", raise priority, cancel), base (readiness, stocks, close it), threat (intel age, routes in reach), aircraft (P(serviceable), sorties, ground it) |
+
+**Engine (`engine/`, Python + OR-Tools CP-SAT, 15 passing tests):**
 
 | Module | Status |
 |---|---|
 | `models.py` | Typed world model: bases, types, aircraft, crews, threats, zones, missions, plan |
-| `scenario.py` | Seeded notional scenario: 11 bases, 96 aircraft, ~160 crews, 10–14 SAMs, 32–40 missions (DCA, AEW, strike, SEAD, CAS, ISR, airlift) |
-| `threats.py` | Hazard field, intel-age inflation, SEAD suppression, risk-aware Dijkstra routing |
+| `scenario.py` | Seeded notional scenario: 11 bases, 96 aircraft, ~160 crews, 10–14 SAMs, 31–40 missions. **Boundary-consistent**: adversary sites ≥30 km outside India's boundary, CAP inside, CAS on the Indian side near the border. |
+| `threats.py` | Hazard field, intel-age inflation, SEAD suppression, Dijkstra + **any-angle smoothing** |
 | `fatigue.py` | Two-process fatigue model → exact crew-fit TOT windows, night currency |
 | `candidates.py` | Feasibility screening with reason codes and TOT domains |
-| `optimizer.py` | CP-SAT allocation: packages, crews, tankers, weapons, weather, alert reserve, dependencies, churn |
+| `optimizer.py` | CP-SAT allocation: packages, crews, tankers (with explicit sorties), weapons, weather, alert reserve, dependencies, churn |
 | `greedy.py` | Manual-planner baseline under identical constraints |
-| `retask.py`, `events.py` | Events (closure, aircraft down, crew down, pop-up threat, new mission, cancel, stock loss) → retask → diff |
+| `retask.py`, `events.py`, `presets.py` | Events (closure, aircraft/crew down, pop-up threat, new/cancelled mission, priority change, stock loss) → retask → diff |
 | `explain.py` | "Why not?" explanations |
 | `kpi.py` | KPIs, Monte Carlo stress test |
 | `validate.py` | Independent constraint checker. Every plan in the tests and benchmark must pass it. |
-| `api.py` | FastAPI: `/scenario`, `/plan`, `/retask`, `/stress`, `/history` |
+| `api.py` | FastAPI under `/api`: state, plan, hazard grid, presets, propose / approve / reject, stress. Serves the built UI. |
 
 **Measured results** (laptop-class CPU, 8 threads, 10 s limit):
 
 | | Greedy "manual planner" | VAYU-SARTHI |
 |---|---|---|
-| Priority-weighted fulfilment (20 scenarios) | 84.2% | **96.6%** |
-| Expected mission value (after serviceability & attrition) | 60.9% | **76.1%** |
-| Mean sortie risk | 7.3% | 8.1% (flies more of the hard missions) |
-| Plan time, 32–40 missions | ms (but worse plan) | 4–10 s |
+| Priority-weighted fulfilment (20 scenarios) | 85.1% | **97.5%** |
+| Expected mission value (after serviceability & attrition) | 62.0% | **77.4%** |
+| Mean sortie risk | 7.2% | 7.7% (flies more of the hard missions) |
+| Plan time, 33–39 missions | ms (but worse plan) | 4–10 s |
 
 | Retask: busiest base fogged 05:00–09:30 (8 scenarios) | Naive re-plan | VAYU-SARTHI |
 |---|---|---|
-| Aircraft reassignments (out of ~60 sorties) | 38.5 | **10.0 (−74%)** |
+| Aircraft reassignments (out of ~60 sorties) | 37.5 | **12.8 (−66%)** |
 | Solve time | similar | **1.7 s** |
-| Priority-weighted fulfilment after event | n/a | 97.3% (from 98.1%) |
+| Priority-weighted fulfilment after event | n/a | 96.7% (from 97.7%) |
 
 **Known simplifications** (state them honestly when asked):
 - The day is a single 24 h horizon.
@@ -363,15 +377,34 @@ Ship every real feed with a cached snapshot, so the demo never depends on venue 
 
 ---
 
-## 9. Roadmap to the finale (~8 weeks)
+## 9. Roadmap
+
+### 9.0 Sprint to 20 October
+
+The engine, COP map, sync matrix and retask review already work (§8), so the next 13 days go on the
+two remaining *visible* differentiators (predictive fog, COA comparison), then the pitch.
+
+| Dates | Deliverable | Owner |
+|---|---|---|
+| Oct 7 | ✅ Engine + COP map + sync matrix + human-in-the-loop retask (this repo) | - |
+| Oct 8–9 | Everyone runs `./run.sh` and clicks through §11. Mentor/officer review of vocabulary and scenario realism. | All |
+| Oct 9–12 | **Predictive fog:** Open-Meteo forecast (visibility, low cloud, humidity, wind) per base → fog probability → "Met forecast" event with probability; cached JSON snapshot for offline. | Geo/Met + ML |
+| Oct 9–12 | **Stress-test panel** in the UI (`/api/stress` exists): p05/p50/p95 band, most fragile missions, most relied-on assets. | Frontend + Backend |
+| Oct 10–13 | **3 COAs** (Max-effect / Min-risk / Max-reserve) via objective weights; side-by-side compare and pick. | Optimisation + Frontend |
+| Oct 12–13 | **HADR scenario** (relief airlift to a flood district) as a second seed, for the dual-use / impact slide. | Optimisation |
+| Oct 14–15 | Deck (§12) with real screenshots and the §8 benchmark tables. Rehearse §11. | Pitch |
+| Oct 16–17 | Record a 3-minute demo video using presets (plus a backup take). | Pitch + Frontend |
+| Oct 18 | **Feature freeze.** Only bug fixes after this. | All |
+| Oct 19 | Dry run with mentor; fix what they trip over. | All |
+| Oct 20 | Submit. | - |
+
+### 9.1 Roadmap to the finale (~8 weeks)
 
 Work demo-first: every week ends with something visibly better on screen.
 
 | Week | Dates (2026) | Deliverable |
 |---|---|---|
-| 1 | Oct 7–13 | Everyone runs the engine and reads §2. Freeze API contract. React skeleton with MapLibre COP showing bases, threats, routes from `/plan`. |
-| 2 | Oct 14–20 | Gantt sync matrix. Weather adapter (Open-Meteo + METAR) → fog closure probability → `BaseClosure` events. MX serviceability model v1. |
-| 3 | Oct 21–27 | **Retask console**: event injector, diff cards, naive-vs-ours counter, Approve/Reject, audit log. WebSocket push. |
+| 1–3 | Oct 7–27 | ✅ COP map, sync matrix and retask console are built. Remaining: weather adapter → fog probability, MX serviceability model v1, WebSocket push, audit log persistence (see 9.0). |
 | 4 | Oct 28–Nov 3 | COA generator (3 options) and commander's-intent sliders. "Why not?" panel. Readiness board with freshness badges. |
 | 5 | Nov 4–10 | Copilot (local LLM, tool-calling). HADR scenario (relief airlift to flood/earthquake districts). Auto-resupply missions. |
 | 6 | Nov 11–17 | DDIL demo: 2 nodes (HQ + base) with NATS leaf node. Cut the link, keep planning locally, reconnect and merge. RBAC roles. |
@@ -405,20 +438,25 @@ Judges usually add a twist (a new constraint or data source), so arrive with a s
 
 ## 11. Demo script (7 minutes)
 
+Steps marked ▶ work in the current build (`./run.sh`). The others need the 9.0 sprint items.
+
 1. **(0:00) Hook.** "Planning an air tasking day takes hours. Re-planning when a base fogs in takes
-   hours again, and the plan churns. Watch this." Show the COP with 11 bases, 96 aircraft and 35 missions.
-2. **(0:45) Plan.** Click *Plan*. In under 10 s it plans ~97% of priority-weighted missions, versus ~84% for the
-   manual-style baseline (benchmark averages). Hover a strike: SEAD goes in 5–30 min before it, routes bend around SAM domes, and a tanker is
-   added for the long leg.
-3. **(1:45) Why not?** Click an unplanned mission: *"Least-risk route 33% vs acceptable 30%; add SEAD."*
-4. **(2:30) Predictive fog.** The met model forecasts the busiest base below minima 05:00–09:30. Retask takes ~2 s.
-   The diff shows about a quarter of the reassignments a naive re-plan would make (10 vs 38.5 on average). Approve.
-5. **(3:30) Pop-up SAM** on a strike ingress. The packages reroute and retime around it, with no aircraft swapped
-   and the rest of the plan untouched. If a mission can no longer be flown within its risk ceiling, it is dropped with its reason. Stress test: p05–p95 band and the most-fragile missions.
-6. **(4:30) Time-sensitive target, P10.** The system finds a pair that does not break anything else
-   (31 missions untouched). Copilot: *"Brief me on TST-01."*
-7. **(5:30) Comms cut** to a base. Its edge node keeps planning, then syncs on reconnect.
-8. **(6:15) Same engine, HADR.** Flood relief airlift to Leh and Srinagar. Close on the numbers slide.
+   hours again, and the plan churns. Watch this." The COP shows 11 bases, 96 aircraft and ~35 missions.
+2. ▶ **(0:45) Plan.** Scenario ▾ → *Generate & plan*. In under 10 s the KPI tiles show ~96% priority-weighted
+   fulfilment, with the green delta against the manual-style plan. Click a strike in the list: its route
+   lights up on the map, its SEAD arrow shows in the sync matrix, and the package and crews appear in the card.
+3. ▶ **(1:45) Why not?** Click an unplanned mission (hollow marker): *"Least-risk route 33% vs acceptable 30%;
+   a SEAD package would open options."*
+4. ▶ **(2:30) Fog.** Inject event → *Fog forecast: <busiest base>*. In ~2 s the proposal card shows
+   "N aircraft reassigned (naive re-plan: ~3× more on average)". Switch the timeline to *Aircraft*: the closure is hatched
+   across the base, with old sorties dashed and new ones outlined. **Approve & issue changes.**
+   *(Sprint: drive this from the Open-Meteo fog probability instead of a preset.)*
+5. ▶ **(3:30) Pop-up SAM.** Inject event → *Drop a medium-range SAM*, then click on a strike's route. Routes bend
+   around it (old route dashed). Toggle *Threat surface* to show why.
+6. ▶ **(4:30) Time-sensitive target, P10.** Inject event → *Time-sensitive target*. The system adds a pair and
+   leaves almost everything else untouched. Press ▶ Play and watch the package fly.
+7. **(5:30) COAs.** Compare Max-effect / Min-risk / Max-reserve side by side and pick one *(sprint)*.
+8. **(6:15) Same engine, HADR.** Flood-relief airlift scenario *(sprint)*. Close on the numbers slide (§8).
 
 ---
 
@@ -432,7 +470,7 @@ Judges usually add a twist (a new constraint or data source), so arrive with a s
 - **Feasibility & viability:** a core engine already works (benchmark table §8); open-source stack, runs offline on one laptop;
   risks and mitigations (§14); scale path (LNS, decomposition by sector/time).
 - **Impact & benefits:** planning time from hours to seconds; +12 pts mission fulfilment from the same fleet;
-  74% less churn on retask; safer crews (fatigue-aware); dual-use for HADR and logistics; indigenous,
+  66% less churn on retask; safer crews (fatigue-aware); dual-use for HADR and logistics; indigenous,
   aligned with IACCS/UDAAN and DRDO's ETAI trustworthy-AI framework.
 - **References:** §16.
 

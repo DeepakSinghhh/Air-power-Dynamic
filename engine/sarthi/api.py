@@ -1,83 +1,174 @@
-"""Thin HTTP API over the engine for the frontend (single in-memory session).
+"""HTTP API over the engine, and the static frontend when it has been built.
 
-    uvicorn sarthi.api:app --reload
+    uvicorn sarthi.api:app --reload        # API at /api, UI at / (after `npm run build`)
+
+Single in-memory session. Retasking is human-in-the-loop: /retask/propose returns
+a proposal (diff + naive comparison) that only takes effect on /approve.
 """
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+import base64
+import threading
+import uuid
+from pathlib import Path
+
+import numpy as np
+from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import candidates, greedy, optimizer
 from .events import Event
 from .kpi import kpis, stress_test
 from .models import Plan, World
-from .retask import retask
+from .presets import presets
+from .retask import RetaskResult, retask
 from .scenario import generate
+from .threats import RiskField, effective_envelope
 
-app = FastAPI(title="VAYU-SARTHI engine", version="0.1.0")
-STATE: dict = {"world": None, "plan": None, "history": []}
+app = FastAPI(title="VAYU-SARTHI engine", version="0.2.0")
+api = APIRouter(prefix="/api")
+LOCK = threading.Lock()
+STATE: dict = {"world": None, "plan": None, "baseline_kpis": None, "version": 0, "history": [],
+               "proposal": None}
 
 
 class ScenarioReq(BaseModel):
     seed: int = 7
 
 
-class RetaskReq(BaseModel):
+class ProposeReq(BaseModel):
     events: list[Event]
     time_limit: float = 10.0
 
 
+def envelopes(world: World) -> dict:
+    out = {}
+    for t in world.threats.values():
+        r_eff, _ = effective_envelope(t, world.now)
+        out[t.id] = {"r_eff_km": round(r_eff, 1), "age_min": max(0, world.now - t.observed_at)}
+    return out
+
+
+def snapshot() -> dict:
+    w, p = STATE["world"], STATE["plan"]
+    return {"world": w, "plan": p, "version": STATE["version"],
+            "kpis": kpis(w, p) if w and p else None, "baseline_kpis": STATE["baseline_kpis"],
+            "envelopes": envelopes(w) if w else {}, "history": STATE["history"]}
+
+
+def _ensure_world() -> World:
+    if STATE["world"] is None:
+        STATE["world"] = generate()
+    return STATE["world"]
+
+
 def _need_plan() -> tuple[World, Plan]:
     if STATE["plan"] is None:
-        raise HTTPException(409, "No plan yet: POST /scenario then POST /plan")
+        raise HTTPException(409, "No plan yet: POST /api/plan first")
     return STATE["world"], STATE["plan"]
 
 
-@app.post("/scenario")
-def new_scenario(req: ScenarioReq) -> World:
-    STATE.update(world=generate(req.seed), plan=None, history=[])
-    return STATE["world"]
+@api.get("/state")
+def get_state() -> dict:
+    with LOCK:
+        _ensure_world()
+        return snapshot()
 
 
-@app.get("/world")
-def get_world() -> World:
-    if STATE["world"] is None:
-        raise HTTPException(409, "No scenario: POST /scenario first")
-    return STATE["world"]
+@api.post("/scenario")
+def new_scenario(req: ScenarioReq) -> dict:
+    with LOCK:
+        STATE.update(world=generate(req.seed), plan=None, baseline_kpis=None, history=[], proposal=None,
+                     version=STATE["version"] + 1)
+        return snapshot()
 
 
-@app.post("/plan")
+@api.post("/plan")
 def make_plan(time_limit: float = 10.0) -> dict:
-    world = STATE["world"] or generate()
-    cands = candidates.build(world)
-    base = greedy.solve(world, cands)
-    plan = optimizer.solve(world, cands, hint=base, time_limit=time_limit)
-    STATE.update(world=world, plan=plan)
-    return {"plan": plan, "kpis": kpis(world, plan), "baseline_kpis": kpis(world, base)}
+    with LOCK:
+        world = _ensure_world()
+        cands = candidates.build(world)
+        base = greedy.solve(world, cands)
+        plan = optimizer.solve(world, cands, hint=base, time_limit=time_limit)
+        STATE.update(plan=plan, baseline_kpis=kpis(world, base), proposal=None, version=STATE["version"] + 1)
+        return snapshot()
 
 
-@app.get("/plan")
-def get_plan() -> dict:
-    world, plan = _need_plan()
-    return {"plan": plan, "kpis": kpis(world, plan)}
+@api.get("/hazard")
+def hazard(proposal: bool = False) -> dict:
+    """Threat hazard surface (per-km kill rate), quantised to 0-255, rows south to north.
+
+    With proposal=true, uses the pending proposal's world (e.g. showing a pop-up SAM before approval).
+    """
+    with LOCK:
+        prop = STATE["proposal"]
+        world = prop["result"].world if proposal and prop else _ensure_world()
+        f = RiskField(world)
+    h = f.hazard
+    hmax = float(h.max()) or 1.0
+    q = np.round(np.sqrt(h / hmax) * 255).astype(np.uint8)  # sqrt keeps faint envelope edges visible
+    return {"lat0": f.lat0, "lon0": f.lon0, "res": f.res, "nlat": f.nlat, "nlon": f.nlon, "max": hmax,
+            "scale": "sqrt", "data": base64.b64encode(q.tobytes()).decode()}
 
 
-@app.post("/retask")
-def do_retask(req: RetaskReq) -> dict:
-    world, plan = _need_plan()
-    res = retask(world, plan, req.events, req.time_limit, compare_naive=True)
-    STATE["history"].append({"notes": res.notes, "diff": res.diff})
-    STATE.update(world=res.world, plan=res.plan)
-    return {"notes": res.notes, "diff": res.diff, "naive_diff": res.naive_diff,
-            "plan": res.plan, "kpis": kpis(res.world, res.plan)}
+@api.get("/presets")
+def get_presets(at: int = 0) -> list:
+    with LOCK:
+        world, plan = _need_plan()
+        return presets(world, plan, at)
 
 
-@app.get("/stress")
+@api.post("/retask/propose")
+def propose(req: ProposeReq) -> dict:
+    with LOCK:
+        world, plan = _need_plan()
+        res: RetaskResult = retask(world, plan, req.events, req.time_limit, compare_naive=True)
+        pid = uuid.uuid4().hex[:8]
+        STATE["proposal"] = {"id": pid, "version": STATE["version"], "result": res}
+        return {"id": pid, "notes": res.notes, "diff": res.diff, "naive_diff": res.naive_diff,
+                "world": res.world, "plan": res.plan, "kpis": kpis(res.world, res.plan),
+                "envelopes": envelopes(res.world)}
+
+
+@api.post("/retask/{pid}/approve")
+def approve(pid: str) -> dict:
+    with LOCK:
+        prop = STATE["proposal"]
+        if not prop or prop["id"] != pid:
+            raise HTTPException(404, "No such pending proposal")
+        if prop["version"] != STATE["version"]:
+            raise HTTPException(409, "Plan changed since this proposal was made; propose again")
+        res: RetaskResult = prop["result"]
+        STATE["history"].append({"id": pid, "notes": res.notes, "now": res.world.now,
+                                 "aircraft_changes": res.diff.aircraft_changes,
+                                 "naive_aircraft_changes": res.naive_diff.aircraft_changes if res.naive_diff else None,
+                                 "decision": "approved"})
+        STATE.update(world=res.world, plan=res.plan, proposal=None, version=STATE["version"] + 1)
+        return snapshot()
+
+
+@api.post("/retask/{pid}/reject")
+def reject(pid: str) -> dict:
+    with LOCK:
+        prop = STATE["proposal"]
+        if not prop or prop["id"] != pid:
+            raise HTTPException(404, "No such pending proposal")
+        STATE["history"].append({"id": pid, "notes": prop["result"].notes, "now": prop["result"].world.now,
+                                 "decision": "rejected"})
+        STATE["proposal"] = None
+        return snapshot()
+
+
+@api.get("/stress")
 def stress(runs: int = 2000) -> dict:
-    world, plan = _need_plan()
-    return stress_test(world, plan, runs)
+    with LOCK:
+        world, plan = _need_plan()
+        return stress_test(world, plan, runs)
 
 
-@app.get("/history")
-def history() -> list:
-    return STATE["history"]
+app.include_router(api)
+
+DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+if DIST.is_dir():
+    app.mount("/", StaticFiles(directory=DIST, html=True), name="ui")

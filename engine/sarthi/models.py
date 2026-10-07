@@ -145,6 +145,7 @@ class Assignment(BaseModel):
     tot: int
     sorties: list[Sortie]
     tankers: list[str] = Field(default_factory=list)
+    tanker_sorties: list[Sortie] = Field(default_factory=list)  # timing + track for each tanker
 
 
 class Plan(BaseModel):

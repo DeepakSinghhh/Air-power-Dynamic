@@ -91,6 +91,61 @@ class RiskField:
         i, j = divmod(node, self.nlon)
         return float(self.LAT[i, j]), float(self.LON[i, j])
 
+    def _segment(self, a: tuple[float, float], b: tuple[float, float]) -> tuple[float, float]:
+        """(km, hazard exponent) along a straight leg, sampled at half-cell spacing; inf if blocked."""
+        km = haversine_km(a[0], a[1], b[0], b[1])
+        n = max(2, int(km / (self.res * 111.32 * 0.5)) + 2)
+        t = np.linspace(0.0, 1.0, n)
+        i = np.clip(np.round((a[0] + (b[0] - a[0]) * t - self.lat0) / self.res).astype(int), 0, self.nlat - 1)
+        j = np.clip(np.round((a[1] + (b[1] - a[1]) * t - self.lon0) / self.res).astype(int), 0, self.nlon - 1)
+        if self.blocked[i, j].any():
+            return float("inf"), float("inf")
+        h = self.hazard[i, j]
+        return km, float(np.sum((h[:-1] + h[1:]) / 2) * km / (n - 1))
+
+    def _smooth(self, nodes: list[int], tol: float = 0.01) -> list[tuple[float, float]]:
+        """Any-angle string pulling: replace grid zig-zags with straight legs that cost no more.
+
+        Greedy from each vertex, exponential + binary search for the farthest node whose
+        direct leg costs <= the grid path between them (km + beta * hazard), within `tol`.
+        """
+        pts = [self.latlon(nd) for nd in nodes]
+        if len(pts) <= 2:
+            return pts
+        ii, jj = np.divmod(np.asarray(nodes), self.nlon)
+        seg = haversine_km(self.LAT[ii[:-1], jj[:-1]], self.LON[ii[:-1], jj[:-1]],
+                           self.LAT[ii[1:], jj[1:]], self.LON[ii[1:], jj[1:]])
+        h = self.hazard[ii, jj]
+        cum = np.concatenate([[0.0], np.cumsum(seg + BETA_KM * (h[:-1] + h[1:]) / 2 * seg)])
+
+        def ok(a: int, b: int) -> bool:
+            km, hz = self._segment(pts[a], pts[b])
+            return km + BETA_KM * hz <= (cum[b] - cum[a]) * (1 + tol) + 1e-9
+
+        last = len(pts) - 1
+        out, i = [0], 0
+        while i < last:
+            good, step, bad = i + 1, 2, None
+            while True:  # exponential search
+                cand = min(i + step, last)
+                if ok(i, cand):
+                    good = cand
+                    if cand == last:
+                        break
+                    step *= 2
+                else:
+                    bad = cand
+                    break
+            while bad is not None and bad - good > 1:  # binary search
+                mid = (good + bad) // 2
+                if ok(i, mid):
+                    good = mid
+                else:
+                    bad = mid
+            out.append(good)
+            i = good
+        return [pts[k] for k in out]
+
     def routes_to(self, lat: float, lon: float, origins: dict[str, tuple[float, float]]) -> dict[str, Route]:
         """Best route from each origin to (lat, lon). Undirected grid, so search from the target."""
         target = self.node(lat, lon)
@@ -104,14 +159,14 @@ class RiskField:
             nodes = [src]
             while nodes[-1] != target:
                 nodes.append(int(pred[nodes[-1]]))
-            ii, jj = np.divmod(np.asarray(nodes), self.nlon)
-            seg = haversine_km(self.LAT[ii[:-1], jj[:-1]], self.LON[ii[:-1], jj[:-1]],
-                               self.LAT[ii[1:], jj[1:]], self.LON[ii[1:], jj[1:]])
-            h = self.hazard[ii, jj]
-            km = float(np.sum(seg))
-            hz = float(np.sum((h[:-1] + h[1:]) / 2 * seg))
+            pts = self._smooth(nodes)
+            km, hz = 0.0, 0.0
+            for a, b in zip(pts, pts[1:]):
+                dk, dh = self._segment(a, b)
+                km += dk
+                hz += dh
             # Snap error between real endpoints and grid cell centres.
-            km += haversine_km(olat, olon, *self.latlon(src)) + haversine_km(lat, lon, *self.latlon(target))
-            path = [self.latlon(nd) for nd in nodes[:: max(1, len(nodes) // 40)]] + [self.latlon(target)]
+            km += haversine_km(olat, olon, *pts[0]) + haversine_km(lat, lon, *pts[-1])
+            path = [(round(a, 4), round(b, 4)) for a, b in pts]
             out[key] = Route(km=float(km), risk=float(1.0 - np.exp(-2.0 * hz)), path=path)
         return out

@@ -7,10 +7,10 @@ from __future__ import annotations
 import argparse
 
 from . import candidates, greedy, optimizer
-from .events import AircraftDown, BaseClosure, NewMission, NewThreat
 from .geo import fmt_time
 from .kpi import kpis, stress_test
-from .models import Mission, Plan, Role, Threat, World
+from .models import Plan, World
+from .presets import presets
 from .retask import RetaskResult, retask
 from .validate import validate
 
@@ -62,19 +62,6 @@ def show_retask(res: RetaskResult, before: dict) -> None:
     print(f"Constraint check: {'PASS' if not errs else errs[:3]}")
 
 
-def _survivable_point(world: World) -> tuple[float, float]:
-    """Lowest-hazard point in the notional adversary area near the forward line."""
-    import numpy as np
-
-    from .scenario import RED_BOX
-    from .threats import RiskField
-    f = RiskField(world)
-    box = (f.LAT >= RED_BOX[0] + 0.5) & (f.LAT <= RED_BOX[1] - 0.5) & (f.LON >= 73.3) & (f.LON <= RED_BOX[3])
-    h = np.where(box, f.hazard, np.inf)
-    i, j = np.unravel_index(int(np.argmin(h)), h.shape)
-    return round(float(f.LAT[i, j]), 2), round(float(f.LON[i, j]), 2)
-
-
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", type=int, default=7)
@@ -99,49 +86,22 @@ def main() -> None:
     for mid, why in plan.unassigned.items():
         print(f"NOT PLANNED {mid}: {' '.join(why)}")
 
-    # Event 1: fog forecast closes the busiest fighter base.
-    busiest = max(world.bases, key=lambda b: sum(s.base == b for a in plan.assignments.values() for s in a.sorties))
-    ev1 = BaseClosure(at=120, base=busiest, start=300, end=570, reason="fog forecast, RVR below minima")
-    banner("T+02:00  PREDICTED WEATHER CLOSURE")
-    res = retask(world, plan, [ev1], args.time_limit, compare_naive=True)
-    show_retask(res, kpis(world, plan))
-    world, plan = res.world, res.plan
-
-    # Event 2: pop-up SAM on the ingress route of the highest-priority strike still to launch.
-    strikes = [a for a in plan.assignments.values() if world.missions[a.mission].role == Role.STRIKE
-               and min(s.launch for s in a.sorties) > 180]
-    if strikes:
-        tgt = max(strikes, key=lambda a: world.missions[a.mission].priority)
-        path = tgt.sorties[0].route
-        lat, lon = path[len(path) * 2 // 3] if path else (world.missions[tgt.mission].lat, world.missions[tgt.mission].lon)
-        ev2 = NewThreat(at=180, threat=Threat(id="POPUP-1", kind="SAM-MR", lat=lat, lon=lon,
-                                              radius_km=45, pk=0.5, mobile_kmh=12))
-        banner(f"T+03:00  POP-UP SAM ON {tgt.mission} INGRESS")
+    # A cascade of events, each built from the plan as it stands at that moment.
+    for at, pid, title in [(120, "fog", "PREDICTED WEATHER CLOSURE"),
+                           (180, "popup", "POP-UP SAM"),
+                           (240, "mx", "PREDICTIVE MAINTENANCE ALERT"),
+                           (300, "tst", "TIME-SENSITIVE TARGET")]:
+        preset = next((p for p in presets(world, plan, at) if p.id == pid), None)
+        if preset is None:
+            continue
+        banner(f"T+{fmt_time(at)}  {title}: {preset.detail}")
         before = kpis(world, plan)
-        res = retask(world, plan, [ev2], args.time_limit, compare_naive=True)
+        res = retask(world, plan, preset.events, args.time_limit, compare_naive=True)
         show_retask(res, before)
+        for mid in set(res.world.missions) - set(world.missions):
+            if mid not in res.plan.assignments:
+                print(f"{mid} not planned:", " ".join(res.plan.unassigned.get(mid, [])))
         world, plan = res.world, res.plan
-
-    # Event 3: predictive maintenance flags three tasked aircraft.
-    later = sorted({s.tail for a in plan.assignments.values() for s in a.sorties if s.launch > 300})[:3]
-    ev3 = AircraftDown(at=240, tails=later, reason="predicted unserviceable (maintenance analytics)")
-    banner("T+04:00  PREDICTIVE MAINTENANCE ALERT")
-    before = kpis(world, plan)
-    res = retask(world, plan, [ev3], args.time_limit, compare_naive=True)
-    show_retask(res, before)
-    world, plan = res.world, res.plan
-
-    # Event 4: time-sensitive target, placed where a survivable route exists.
-    lat, lon = _survivable_point(world)
-    tst = Mission(id="TST-01", role=Role.STRIKE, priority=10, lat=lat, lon=lon, tot_earliest=330,
-                  tot_latest=390, package=2, weapon="PGM", weapons_per_aircraft=2, max_risk=0.35,
-                  label="Time-sensitive target")
-    banner("T+05:00  TIME-SENSITIVE TARGET (P10, TOT 05:30-06:30)")
-    before = kpis(world, plan)
-    res = retask(world, plan, [NewMission(at=300, mission=tst)], args.time_limit, compare_naive=True)
-    show_retask(res, before)
-    if "TST-01" not in res.plan.assignments:
-        print("TST-01 not planned:", " ".join(res.plan.unassigned.get("TST-01", [])))
 
 
 if __name__ == "__main__":

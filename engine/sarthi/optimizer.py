@@ -13,7 +13,7 @@ from collections import defaultdict
 
 from ortools.sat.python import cp_model
 
-from .candidates import BRIEF_MIN, CREW_REST_MIN, DEBRIEF_MIN, Candidates, build
+from .candidates import BRIEF_MIN, CREW_REST_MIN, DEBRIEF_MIN, Candidates, build, tanker_sortie
 from .explain import explain_unassigned
 from .models import Assignment, Plan, Role, Sortie, World
 
@@ -77,6 +77,9 @@ def solve(world: World, cands: Candidates | None = None, baseline: Plan | None =
             if t and t.fighter:
                 reserve_iv[s.base].append((model.new_fixed_size_interval_var(
                     s.launch, s.recover - s.launch + turn, ""), 1))
+        for ts in a.tanker_sorties:
+            turn = world.types[world.aircraft[ts.tail].type].turnaround_min
+            ac_iv[ts.tail].append(model.new_fixed_size_interval_var(ts.launch, ts.recover - ts.launch + turn, ""))
 
     live = [m for m in world.missions.values() if m.id not in frozen]
     for m in live:
@@ -228,8 +231,10 @@ def solve(world: World, cands: Candidates | None = None, baseline: Plan | None =
                 sorties.append(Sortie(tail=p.tail, base=p.base, crew=pool.pop(0) if pool else None,
                                       launch=t - p.lead, recover=t + p.trail, route_km=round(p.route.km, 1),
                                       risk=round(p.route.risk, 4), needs_aar=p.needs_aar, route=p.route.path))
-            tankers = [tc.tail for tc in cands.tankers.get(m.id, []) if solver.value(k[m.id, tc.tail])]
-            plan.assignments[m.id] = Assignment(mission=m.id, tot=t, sorties=sorties, tankers=tankers)
+            tks = [tc for tc in cands.tankers.get(m.id, []) if solver.value(k[m.id, tc.tail])]
+            plan.assignments[m.id] = Assignment(mission=m.id, tot=t, sorties=sorties,
+                                                tankers=[tc.tail for tc in tks],
+                                                tanker_sorties=[tanker_sortie(world, tc, t) for tc in tks])
     plan.solve_seconds = round(time.perf_counter() - t0, 3)
     plan.unassigned = explain_unassigned(world, cands, plan)
     return plan
