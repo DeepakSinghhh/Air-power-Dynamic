@@ -83,6 +83,17 @@ export interface Mission {
   label: string
 }
 
+export interface Intent {
+  name: string
+  risk_scale: number
+  loss_weight: number
+  reserve_extra: number
+  reserve_fraction: number
+  sortie_cost: number
+  munitions_weight: number
+  offensive_floor: number
+}
+
 export interface World {
   now: number
   horizon: number
@@ -96,6 +107,7 @@ export interface World {
   missions: Record<string, Mission>
   aar_extension: number
   fatigue_threshold: number
+  intent: Intent
 }
 
 export interface Sortie {
@@ -257,3 +269,28 @@ export interface MetResponse {
   windows: MetWindow[]
   events: EngineEvent[]
 }
+
+// ---------- courses of action ----------
+
+export interface CoaMetrics {
+  expected_losses: number
+  min_fighters_on_ground: number
+  min_fighters_at: number
+  fighters_total: number
+  munitions: Record<string, number>
+  munitions_total: number
+  high_priority_dropped: string[]
+}
+
+export interface Coa {
+  id: string
+  name: string
+  description: string
+  intent: Intent
+  kpis: Kpis
+  metrics: CoaMetrics
+  robustness_p05: number
+  diff: PlanDiff
+}
+
+export interface CoaResponse { version: number; now: number; current_intent: Intent; seconds: number; coas: Coa[] }

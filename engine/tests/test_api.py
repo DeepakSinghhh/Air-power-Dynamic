@@ -55,3 +55,24 @@ def test_met_snapshot_closures_follow_threshold():
     assert hi["events"] and all(e["kind"] == "base_closure" and e["probability"] >= 0.5 for e in hi["events"])
     lo = client.get("/api/met?source=snapshot&threshold=0.3&at=0").json()
     assert sum(w["end"] - w["start"] for w in lo["windows"]) >= sum(w["end"] - w["start"] for w in hi["windows"])
+
+
+def test_coa_compare_adopt_and_intent_persists():
+    s = _planned()
+    r = client.post("/api/coa?time_limit=4").json()
+    ids = [c["id"] for c in r["coas"]]
+    assert ids == ["effect", "risk", "defend"]
+    by = {c["id"]: c for c in r["coas"]}
+    assert by["risk"]["metrics"]["expected_losses"] <= by["effect"]["metrics"]["expected_losses"]
+    assert by["defend"]["metrics"]["munitions_total"] <= by["effect"]["metrics"]["munitions_total"]
+    prop = client.post("/api/coa/risk/propose").json()
+    assert prop["world"]["intent"]["name"] == "Min risk"
+    assert client.get("/api/state").json()["version"] == s["version"]  # nothing changes until approved
+    after = client.post(f"/api/retask/{prop['id']}/approve").json()
+    assert after["world"]["intent"]["name"] == "Min risk"
+    # Later retasks keep honouring the adopted intent.
+    tst = next(p for p in client.get("/api/presets?at=0").json() if p["id"] == "tst")
+    nxt = client.post("/api/retask/propose", json={"events": tst["events"], "time_limit": 4}).json()
+    assert nxt["world"]["intent"]["name"] == "Min risk"
+    # COAs computed for an older plan cannot be adopted.
+    assert client.post("/api/coa/defend/propose").status_code == 409

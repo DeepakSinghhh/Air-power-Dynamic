@@ -18,7 +18,7 @@ from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import candidates, greedy, met, optimizer
+from . import candidates, coa, greedy, met, optimizer
 from .events import Event
 from .kpi import kpis, stress_test
 from .models import Plan, World
@@ -32,7 +32,7 @@ api = APIRouter(prefix="/api")
 LOCK = threading.Lock()
 STATE: dict = {"world": None, "plan": None, "baseline_kpis": None, "reference_label": "vs manual-style plan",
                "version": 0, "history": [],
-               "proposal": None, "met_live": None}
+               "proposal": None, "met_live": None, "coas": None}
 LIVE_MET_TTL_S = 1800
 
 
@@ -141,6 +141,38 @@ def met_forecast(source: str = "snapshot", threshold: float = 0.5, at: int | Non
     windows = met.fog_windows(fc, threshold, after=at)
     return {"forecast": fc, "threshold": threshold, "at": at, "windows": windows,
             "events": met.closure_events(world, windows, at)}
+
+
+@api.post("/coa")
+def compare_coas(time_limit: float = 6.0) -> dict:
+    """Plan the current situation under each commander's intent (solved in parallel)."""
+    with LOCK:
+        world, plan = _need_plan()
+        t0 = time.perf_counter()
+        results = coa.compare(world, plan, time_limit)
+        STATE["coas"] = {"version": STATE["version"], "items": {c.id: (w, c) for w, c in results}}
+        return {"version": STATE["version"], "now": world.now, "current_intent": world.intent,
+                "seconds": round(time.perf_counter() - t0, 1),
+                "coas": [c.model_dump(exclude={"plan"}) for _, c in results]}
+
+
+@api.post("/coa/{coa_id}/propose")
+def propose_coa(coa_id: str) -> dict:
+    """Turn a computed COA into a pending proposal (reviewed and approved like any retask)."""
+    with LOCK:
+        world, plan = _need_plan()
+        store = STATE["coas"]
+        if not store or coa_id not in store["items"]:
+            raise HTTPException(404, "Compute courses of action first")
+        if store["version"] != STATE["version"]:
+            raise HTTPException(409, "Plan changed since the COAs were computed; compute them again")
+        w, c = store["items"][coa_id]
+        notes = [f"Commander's intent: {c.name}. {c.description}"]
+        res = RetaskResult(world=w, plan=c.plan, diff=c.diff, notes=notes)
+        pid = uuid.uuid4().hex[:8]
+        STATE["proposal"] = {"id": pid, "version": STATE["version"], "result": res}
+        return {"id": pid, "notes": notes, "diff": c.diff, "naive_diff": None, "world": w, "plan": c.plan,
+                "kpis": c.kpis, "envelopes": envelopes(w)}
 
 
 @api.get("/presets")

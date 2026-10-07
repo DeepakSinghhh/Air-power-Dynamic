@@ -162,3 +162,13 @@ export function maxRisk(a: Assignment | undefined): number {
 }
 
 export const sortieKey = (mission: string, tail: string) => `${mission}|${tail}`
+
+/** Fighters that must stay on the ground at a base (mirrors World.reserve in the engine). */
+export function reserveAt(world: World, baseId: string): number {
+  const b = world.bases[baseId]
+  const it = world.intent
+  const fixed = b.fighter_reserve + (b.fighter_reserve > 0 ? it.reserve_extra : 0)
+  if (!it.reserve_fraction) return fixed
+  const n = Object.values(world.aircraft).filter((a) => a.base === baseId && a.serviceable && world.types[a.type].fighter).length
+  return Math.max(fixed, Math.ceil(it.reserve_fraction * n))
+}

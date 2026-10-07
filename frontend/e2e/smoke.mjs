@@ -49,6 +49,23 @@ await page.locator('.mrow').first().click()
 await shot('02-mission-selected')
 await page.keyboard.press('Escape')
 
+// Courses of action: compare three intents, adopt Min risk, approve; the intent then persists.
+await page.click('.intent-chip')
+await page.waitForSelector('.coa-table', { timeout: 120000 })
+await idle()
+step(`COAs: ${(await page.locator('.coa-name').allTextContents()).join(' | ')}`)
+await shot('02b-coa-compare')
+const adoptButtons = page.locator('.coa-table button:has-text("Adopt")')
+await adoptButtons.nth(1).click() // columns: Max effect, Min risk, Defensive posture
+await page.waitForSelector('.proposal-head', { timeout: 60000 })
+await idle()
+step(`COA proposal: ${(await page.locator('.proposal-head h2').textContent())?.trim()}`)
+await shot('02c-coa-proposal')
+await approve()
+const chip = (await page.locator('.intent-chip').textContent()) ?? ''
+step(`intent chip: ${chip.trim()}`)
+if (!chip.includes('Min risk')) throw new Error('adopted intent not shown')
+
 // Fog forecast -> closures -> proposal -> approve.
 await page.click('text=Jump to now')
 await openWeather()

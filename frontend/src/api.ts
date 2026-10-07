@@ -1,4 +1,4 @@
-import type { AppState, EngineEvent, Hazard, MetResponse, MetSource, Preset, Proposal } from './types'
+import type { AppState, CoaResponse, EngineEvent, Hazard, MetResponse, MetSource, Preset, Proposal } from './types'
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -28,6 +28,8 @@ export const api = {
     call<MetResponse>(`/met?source=${source}&threshold=${threshold}&at=${Math.round(at)}`),
   propose: (events: EngineEvent[], timeLimit = 10) =>
     call<Proposal>('/retask/propose', { method: 'POST', body: JSON.stringify({ events, time_limit: timeLimit }) }),
+  coas: (timeLimit = 6) => call<CoaResponse>(`/coa?time_limit=${timeLimit}`, { method: 'POST' }),
+  coaPropose: (id: string) => call<Proposal>(`/coa/${id}/propose`, { method: 'POST' }),
   approve: (id: string) => call<AppState>(`/retask/${id}/approve`, { method: 'POST' }),
   reject: (id: string) => call<AppState>(`/retask/${id}/reject`, { method: 'POST' }),
 }

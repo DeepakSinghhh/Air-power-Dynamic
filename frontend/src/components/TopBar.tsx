@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useStore, useView } from '../store'
 import type { Kpis } from '../types'
 import { fmtPct, fmtTime } from '../util'
+import CoaPanel from './CoaPanel'
 import { WeatherMenu } from './Weather'
 
 type Better = 'up' | 'down' | 'none'
@@ -164,6 +165,18 @@ function ScenarioMenu() {
   )
 }
 
+function IntentChip() {
+  const intent = useStore((s) => s.app?.world.intent.name)
+  const setOpen = useStore((s) => s.setCoaOpen)
+  const hasPlan = useStore((s) => !!s.app?.plan)
+  if (!intent || !hasPlan) return null
+  return (
+    <button className="intent-chip" onClick={() => setOpen(true)} title="Compare courses of action">
+      Intent: <b>{intent}</b> · COAs ▸
+    </button>
+  )
+}
+
 function BusyPill() {
   const busy = useStore((s) => s.busy)
   const [, tick] = useState(0)
@@ -205,10 +218,12 @@ export default function TopBar() {
       </div>
       <div className="actions">
         <BusyPill />
+        <IntentChip />
         <WeatherMenu />
         <EventMenu />
         <ScenarioMenu />
       </div>
+      <CoaPanel />
     </header>
   )
 }

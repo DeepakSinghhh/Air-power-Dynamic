@@ -20,6 +20,7 @@ DEBRIEF_MIN = 30
 CREW_REST_MIN = 90
 TANKER_LEAD_MIN = 90   # tanker on its track this long before the package TOT
 TANKER_TRAIL_MIN = 45
+DEFERRED = "deferred by commander's intent (offensive below P{floor})"
 
 
 @dataclass
@@ -95,6 +96,10 @@ def build(world: World, fields: dict[frozenset, RiskField] | None = None) -> Can
 
         window = [(m.tot_earliest, m.tot_latest)]
         pairs = []
+        if world.deferred(m):
+            rej[DEFERRED.format(floor=world.intent.offensive_floor)] += 1
+            cands.pairs[m.id], cands.crews[m.id], cands.tankers[m.id] = [], [], []
+            continue
         for a in world.aircraft.values():
             t = world.types[a.type]
             if m.role not in t.roles:
@@ -114,8 +119,9 @@ def build(world: World, fields: dict[frozenset, RiskField] | None = None) -> Can
             if route.km > reach * world.aar_extension or (needs_aar and m.role in (Role.AAR, Role.AIRLIFT)):
                 rej["out of range (even with AAR)"] += 1
                 continue
-            if route.risk > m.max_risk:
-                rej[f"route risk above {m.max_risk:.0%}"] += 1
+            ceiling = world.risk_ceiling(m)
+            if route.risk > ceiling:
+                rej[f"route risk above {ceiling:.0%}"] += 1
                 continue
             transit = int(round(route.km / t.speed_kmh * 60))
             lead = t.prep_min + transit

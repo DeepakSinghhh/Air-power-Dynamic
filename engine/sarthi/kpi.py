@@ -67,3 +67,38 @@ def stress_test(world: World, plan: Plan, runs: int = 2000, seed: int = 0) -> di
         "most_fragile": [(m, round(n / runs, 3)) for m, n in fails.most_common(5)],
         "most_relied_on_assets": reliance.most_common(5),
     }
+
+
+def plan_metrics(world: World, plan: Plan) -> dict:
+    """Trade-off measures for comparing courses of action."""
+    losses = sum(s.risk for a in plan.assignments.values() for s in a.sorties)
+    munitions: dict[str, int] = {}
+    for mid, a in plan.assignments.items():
+        m = world.missions.get(mid)
+        if m and m.weapon:
+            munitions[m.weapon] = munitions.get(m.weapon, 0) + m.weapons_per_aircraft * len(a.sorties)
+    # Fighters on the ground (not airborne or turning round) over the day: the surge capacity left.
+    fighters = [a for a in world.aircraft.values() if a.serviceable and world.types[a.type].fighter]
+    busy = []
+    for a in plan.assignments.values():
+        for s in a.sorties:
+            t = world.types[world.aircraft[s.tail].type]
+            if t.fighter:
+                busy.append((s.launch, s.recover + t.turnaround_min))
+    times = sorted({max(world.now, s) for s, _ in busy if s < 1440} | {world.now})
+    low, low_t = len(fighters), world.now
+    for t in times:
+        n = len(fighters) - sum(1 for s, e in busy if s <= t < e)
+        if n < low:
+            low, low_t = n, t
+    dropped = sorted((m for m in world.missions.values() if m.id not in plan.assignments and m.priority >= 8),
+                     key=lambda m: -m.priority)
+    return {
+        "expected_losses": round(losses, 2),
+        "min_fighters_on_ground": low,
+        "min_fighters_at": low_t,
+        "fighters_total": len(fighters),
+        "munitions": munitions,
+        "munitions_total": sum(munitions.values()),
+        "high_priority_dropped": [f"{m.id} (P{m.priority})" for m in dropped],
+    }

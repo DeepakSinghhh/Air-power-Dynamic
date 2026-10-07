@@ -32,6 +32,9 @@ this repo (`engine/`):
 Measured against a greedy "manual planner" baseline over 20 random scenarios (33–39 missions,
 96 aircraft, ~160 crews): **+12.4 pts priority-weighted mission fulfilment (85.1% → 97.5%)
 and +15.4 pts expected mission value**. Every plan passes an independent constraint checker.
+The commander also sees the same situation planned under **three intents** (Max effect / Min risk /
+Defensive posture) side by side in ~6 s, with each trade spelled out: *"Min risk gives up 17.4 pts of
+effect (6 missions); in return it cuts expected losses 70%…"*.
 
 ---
 
@@ -142,6 +145,7 @@ plans and retasking options in seconds, for a commander to approve.
 | Coupling | Separate modules for routes, crew, weapons | **One CP-SAT model**: routing ↔ range ↔ tanker ↔ crew duty ↔ weapons ↔ weather ↔ alert reserve |
 | Explainability | "AI says so" | Reason codes on every rejected option, plus counterfactual hints ("risk 33% vs 30% → add SEAD") |
 | Time awareness | Static threat circles | **Intel-age inflation**: a mobile SAM's envelope grows with time since it was last seen, and its lethality spreads out |
+| Options | One answer | **Three courses of action from commander's intent**, each the least-disruptive realisation of that intent, with the trade in one plain sentence |
 | Robustness | One plan, no confidence | **Monte Carlo stress test** (p05/p50/p95 fulfilment) and single points of failure |
 | Prediction | Charts | Predictions **feed the optimiser** (fog closure windows, maintenance risk, fatigue windows), so retasking is proactive |
 | Deployability | Cloud + public LLM API | **Air-gapped**: offline maps, local open-weight LLM, DDIL edge nodes, audit trail, human approval |
@@ -316,10 +320,28 @@ Execute the plan 2,000 times with random unserviceability and attrition. Report 
 fulfilment band, the most fragile missions and the most relied-on assets. **Next:** a robust mode that
 adds spare aircraft for high-priority packages when p05 is too low.
 
-### 6.9 Courses of action (next)
-Solve 3 times with different objective weights to get **Max-Effect**, **Min-Risk** and **Max-Reserve**
-options (an ε-constraint Pareto set). Show them side by side: fulfilment, risk, reserve, sorties.
-A **commander's-intent slider** for risk appetite and reserve level re-solves live.
+### 6.9 Courses of action (built: `coa.py`, `Intent` in `models.py`)
+Commander's intent is part of the world state (`World.intent`), so every constraint, the validator and
+the explanations all see the same rules. An intent has a handful of interpretable knobs:
+
+| Intent | Knobs | What it means |
+|---|---|---|
+| **Max effect** | defaults | Fly everything the tasked risk ceilings allow; maximise priority-weighted effect |
+| **Min risk** | `risk_scale 0.6`, `loss_weight 4` | Every risk ceiling × 0.6; each expected aircraft loss costs 4 priority points in the objective |
+| **Defensive posture** | `offensive_floor 7`, `reserve_fraction 0.6`, `munitions_weight 150` | Defer strike/SEAD below P7; keep ≥ 60% of each base's serviceable fighters on the ground (air-defence alert); price guided weapons |
+
+The three COAs are solved **in parallel threads** (CP-SAT releases the GIL), each as a *retask from the
+current plan*: launched missions stay frozen and churn is penalised, so a COA is the least-disruptive way
+to apply its intent, not a fresh plan. Each gets KPIs, trade-off metrics (expected aircraft losses = Σ
+sortie loss probabilities, worst sortie risk, sorties, guided weapons, fighters on the ground at the
+busiest moment, P≥8 missions dropped), a 1,000-run stress test and a diff. The UI shows a losses-vs-fulfilment
+scatter, one computed sentence per trade, and a full table. **Adopt** turns a COA into a normal proposal
+(approve/reject); once approved, the intent persists, so later retasks (fog, pop-up SAM) respect it.
+
+Lesson learned: a "Max reserve" intent (raise every base's alert reserve) produced the *same plan* as Max
+effect, because fighters are not the binding resource (at most ~18 of 66 are airborne or turning round at once). We replaced it
+with Defensive posture, which changes what is flown. **Next:** custom intent sliders, and an ε-constraint
+sweep that draws the whole effect-vs-losses Pareto front.
 
 ### 6.10 Copilot (next)
 A local open-weight LLM with tools `get_plan`, `why_not(mission)`, `what_if(events)`,
@@ -360,13 +382,14 @@ Run everything with `./run.sh`, then open http://127.0.0.1:8000. It works offlin
 | Sync matrix | *Missions* view (TOT windows, packages, TOT diamonds, SEAD → strike arrows) and *Aircraft* view (lanes by base, turnaround, closures, U/S); NOW line + draggable view time + playback |
 | Retask review | Inject an event (6 context-aware presets or map tools) → proposal with diff, **"naive re-plan would change N"**, KPI deltas → Approve / Reject → decision log |
 | Weather | Fog forecast panel: per-base hourly P(fog) from the MOS model, cached dense-fog night or live Open-Meteo, commander's risk threshold → proposed closures; observed METAR overlay where available; base-card chart; P(fog) cells on the timeline |
+| Courses of action | Intent chip in the top bar → three COAs solved in parallel (~6 s): losses-vs-fulfilment scatter, one computed trade sentence per COA, table (fulfilment, expected value, losses, worst sortie risk, sorties, guided weapons, fighters on the ground, p05 robustness) → **Adopt** = a normal proposal |
 | Detail cards | Mission (package, crews, "why not planned", raise priority, cancel), base (readiness, stocks, close it), threat (intel age, routes in reach), aircraft (P(serviceable), sorties, ground it) |
 
-**Engine (`engine/`, Python + OR-Tools CP-SAT, 21 passing tests):**
+**Engine (`engine/`, Python + OR-Tools CP-SAT, 23 passing tests):**
 
 | Module | Status |
 |---|---|
-| `models.py` | Typed world model: bases, types, aircraft, crews, threats, zones, missions, plan |
+| `models.py` | Typed world model: bases, types, aircraft, crews, threats, zones, missions, plan, **commander's intent** |
 | `scenario.py` | Seeded notional scenario: 11 bases, 96 aircraft, ~160 crews, 10–14 SAMs, 31–40 missions. **Boundary-consistent**: adversary sites ≥30 km outside India's boundary, CAP inside, CAS on the Indian side near the border. |
 | `threats.py` | Hazard field, intel-age inflation, SEAD suppression, Dijkstra + **any-angle smoothing** |
 | `fatigue.py` | Two-process fatigue model → exact crew-fit TOT windows, night currency |
@@ -375,10 +398,11 @@ Run everything with `./run.sh`, then open http://127.0.0.1:8000. It works offlin
 | `greedy.py` | Manual-planner baseline under identical constraints |
 | `retask.py`, `events.py`, `presets.py` | Events (closure, aircraft/crew down, pop-up threat, new/cancelled mission, priority change, stock loss) → retask → diff |
 | `explain.py` | "Why not?" explanations |
-| `kpi.py` | KPIs, Monte Carlo stress test |
+| `kpi.py` | KPIs, Monte Carlo stress test, COA trade-off metrics |
+| `coa.py` | Three courses of action from commander's intent, solved in parallel as least-disruptive retasks (6.9) |
 | `met.py` + `tools/build_fog_model.py` | Fog MOS model trained on real METARs; held-out Brier skill +44%, AUC 0.91 (6.6.1) |
 | `validate.py` | Independent constraint checker. Every plan in the tests and benchmark must pass it. |
-| `api.py` | FastAPI under `/api`: state, plan, hazard grid, presets, propose / approve / reject, stress. Serves the built UI. |
+| `api.py` | FastAPI under `/api`: state, plan, hazard grid, fog forecast, presets, propose / approve / reject, COAs (compare / adopt), stress. Serves the built UI. |
 
 **Measured results** (laptop-class CPU, 8 threads, 10 s limit):
 
@@ -395,6 +419,19 @@ Run everything with `./run.sh`, then open http://127.0.0.1:8000. It works offlin
 | Solve time | similar | **1.7 s** |
 | Priority-weighted fulfilment after event | n/a | 96.7% (from 97.7%) |
 
+| Courses of action (8 scenarios, mean; `python -m sarthi.benchmark --coa --seeds 8`) | Max effect | Min risk | Defensive posture |
+|---|---|---|---|
+| Priority-weighted fulfilment | **96.5%** | 86.5% | 78.1% |
+| Expected aircraft losses (Σ sortie loss probability) | 5.81 | **3.01** | 3.71 |
+| Worst single-sortie risk | 46% | **30%** | 45% |
+| Sorties / guided weapons | 72 / 148 | 64 / 132 | **50 / 104** |
+| Fighters on the ground at the busiest moment (of ~66) | 50 | 50 | **53** |
+| Time to solve all three in parallel (4 CPUs) | | ~6 s | |
+
+The COAs do not always order the same way, which is the point of showing them. In one scenario every route was already
+under 21% risk, so Min risk = Max effect; in two, Defensive posture kept more effect than Min risk but lost more
+aircraft. All 24 COA plans pass the independent validator under their own intent.
+
 **Known simplifications** (state them honestly when asked):
 - The day is a single 24 h horizon.
 - Each crew is qualified on one type.
@@ -410,8 +447,8 @@ Run everything with `./run.sh`, then open http://127.0.0.1:8000. It works offlin
 
 ### 9.0 Sprint to 20 October
 
-The engine, COP map, sync matrix and retask review already work (§8), so the next 13 days go on the
-two remaining *visible* differentiators (predictive fog, COA comparison), then the pitch.
+The engine, COP map, sync matrix, retask review, predictive fog and COA comparison already work (§8), so
+the rest of the sprint goes on the stress-test panel, the HADR scenario and the pitch.
 
 | Dates | Deliverable | Owner |
 |---|---|---|
@@ -419,7 +456,7 @@ two remaining *visible* differentiators (predictive fog, COA comparison), then t
 | Oct 8–9 | Everyone runs `./run.sh` and clicks through §11. Mentor/officer review of vocabulary and scenario realism. | All |
 | Oct 7 | ✅ **Predictive fog:** MOS model on Open-Meteo NWP trained on real METARs (held-out Brier skill +44%), Weather panel, closures with probability, offline snapshot | - |
 | Oct 9–12 | **Stress-test panel** in the UI (`/api/stress` exists): p05/p50/p95 band, most fragile missions, most relied-on assets. | Frontend + Backend |
-| Oct 10–13 | **3 COAs** (Max-effect / Min-risk / Max-reserve) via objective weights; side-by-side compare and pick. | Optimisation + Frontend |
+| Oct 7 | ✅ **3 COAs** from commander's intent (Max effect / Min risk / Defensive posture), solved in parallel; scatter + trade sentences + table; adopt → approve; the intent persists | - |
 | Oct 12–13 | **HADR scenario** (relief airlift to a flood district) as a second seed, for the dual-use / impact slide. | Optimisation |
 | Oct 14–15 | Deck (§12) with real screenshots and the §8 benchmark tables. Rehearse §11. | Pitch |
 | Oct 16–17 | Record a 3-minute demo video using presets (plus a backup take). | Pitch + Frontend |
@@ -434,7 +471,7 @@ Work demo-first: every week ends with something visibly better on screen.
 | Week | Dates (2026) | Deliverable |
 |---|---|---|
 | 1–3 | Oct 7–27 | ✅ COP map, sync matrix and retask console are built. Remaining: weather adapter → fog probability, MX serviceability model v1, WebSocket push, audit log persistence (see 9.0). |
-| 4 | Oct 28–Nov 3 | COA generator (3 options) and commander's-intent sliders. "Why not?" panel. Readiness board with freshness badges. |
+| 4 | Oct 28–Nov 3 | ✅ COA generator (3 intents). Remaining: custom commander's-intent sliders, Pareto sweep. "Why not?" panel. Readiness board with freshness badges. |
 | 5 | Nov 4–10 | Copilot (local LLM, tool-calling). HADR scenario (relief airlift to flood/earthquake districts). Auto-resupply missions. |
 | 6 | Nov 11–17 | DDIL demo: 2 nodes (HQ + base) with NATS leaf node. Cut the link, keep planning locally, reconnect and merge. RBAC roles. |
 | 7 | Nov 18–24 | Scale: LNS retask at 150+ missions. Terrain masking (stretch). Stress-test UI. Performance tuning. |
@@ -486,7 +523,11 @@ Steps marked ▶ work in the current build (`./run.sh`). The others need the 9.0
    around it (old route dashed). Toggle *Threat surface* to show why.
 6. ▶ **(4:30) Time-sensitive target, P10.** Inject event → *Time-sensitive target*. The system adds a pair and
    leaves almost everything else untouched. Press ▶ Play and watch the package fly.
-7. **(5:30) COAs.** Compare Max-effect / Min-risk / Max-reserve side by side and pick one *(sprint)*.
+7. ▶ **(5:30) COAs.** Click the *Intent: Max effect · COAs* chip. In ~6 s three plans for the same situation appear:
+   the scatter shows effect against expected losses, and one sentence states each trade (*"Min risk gives up 17.4 pts
+   of effect (6 missions); in return it cuts expected losses 70%…"*). "The machine does not pick the intent. You do."
+   **Adopt** Min risk → it is just another proposal (13 aircraft reassigned) → **Approve**. The chip now reads
+   *Min risk*, and later retasks respect it.
 8. **(6:15) Same engine, HADR.** Flood-relief airlift scenario *(sprint)*. Close on the numbers slide (§8).
 
 ---
@@ -547,6 +588,10 @@ notional data; it does not engage targets.
   violated. CP-SAT proves feasibility, reports an optimality gap and explains itself. RL needs simulators and data we don't have,
   and is opaque. RL could later learn warm-start heuristics.
 - **Does the AI make decisions?** No. It proposes diffs and COAs with reasons, and a human approves.
+- **Aren't your COAs just three weightings?** They are three *intents*, each a few interpretable rules
+  (risk ceilings × 0.6, a price on expected losses, defer strikes below P7, hold 60% of fighters for air defence).
+  The rules are hard constraints the validator checks, not hidden weights. Each COA is re-planned from the current
+  plan with churn penalised, so adopting one does not tear up the ATO.
 - **How does it scale to a real theatre?** It is at 4–10 s for about 40 missions now. LNS and decomposition by sector and
   time window give near-linear growth. Retask touches only the affected neighbourhood.
 - **What if the network is down?** Each base runs an edge node with its own copy of state and the engine,

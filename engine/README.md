@@ -9,13 +9,14 @@ pip install -e ".[api,dev]"
 
 python -m sarthi.demo                 # plan a 24 h day, then fog / pop-up SAM / MX alert / TST retasks
 python -m sarthi.benchmark --seeds 20 # optimiser vs greedy manual-planner baseline
-python -m pytest -q                   # 21 tests, incl. constraint validation, API flow, fog model
+python -m sarthi.benchmark --coa      # the three courses of action, side by side
+python -m pytest -q                   # 23 tests, incl. constraint validation, API flow, fog model, COAs
 uvicorn sarthi.api:app --reload       # REST API under /api (docs at /docs); serves the UI if built
 ```
 
 | Module | Purpose |
 |---|---|
-| `models.py` | Typed domain model (times are minutes from 00:00 D-day) |
+| `models.py` | Typed domain model (times are minutes from 00:00 D-day), including commander's intent |
 | `scenario.py` | Seeded notional scenario generator |
 | `threats.py` | SAM hazard field, intel-age inflation, SEAD suppression, Dijkstra routing |
 | `fatigue.py` | Two-process crew effectiveness model → fit TOT windows |
@@ -24,12 +25,13 @@ uvicorn sarthi.api:app --reload       # REST API under /api (docs at /docs); ser
 | `greedy.py` | Manual-planner baseline under the same constraints |
 | `events.py`, `retask.py` | Operational events, retask, plan diff |
 | `explain.py` | "Why wasn't this mission planned?" |
-| `kpi.py` | KPIs and Monte Carlo stress test |
+| `kpi.py` | KPIs, Monte Carlo stress test, COA trade-off metrics |
+| `coa.py` | Courses of action: the same situation planned under three commander's intents, in parallel |
 | `validate.py` | Independent constraint checker |
 | `presets.py` | Context-aware demo events built from the current plan |
 | `met.py` | Fog forecasting: MOS logistic model on Open-Meteo NWP → P(vis < 1 km) per base-hour → closure events |
 | `data/met/` | Trained fog model (with held-out skill scores) and a cached real dense-fog night |
-| `api.py` | FastAPI: state, plan, hazard grid, presets, propose / approve / reject retask |
+| `api.py` | FastAPI: state, plan, hazard grid, fog forecast, presets, propose / approve / reject retask, COAs |
 | `data/india.json` | India outline (Natural Earth, India point of view) for scenario geography |
 
 Retasking is human-in-the-loop: a proposal only takes effect when approved.
@@ -41,12 +43,20 @@ curl 'localhost:8000/api/presets?at=120'                      # ready-made event
 curl -X POST localhost:8000/api/retask/propose -H 'content-type: application/json' -d \
   '{"events":[{"kind":"base_closure","at":120,"base":"HLW","start":300,"end":570,"reason":"fog"}]}'
 curl -X POST localhost:8000/api/retask/<id>/approve           # or /reject
+curl -X POST 'localhost:8000/api/coa?time_limit=6'             # three COAs for the current situation
+curl -X POST localhost:8000/api/coa/risk/propose               # adopt one as a proposal, then approve it
 ```
 
 Scenario geography is boundary-consistent: notional adversary sites are always at least 30 km outside
 India's boundary, CAP stations are inside it, and CAS points are on the Indian side near the border.
 Routes are any-angle: Dijkstra on the threat grid, then string pulling that keeps a straight leg only
 where it costs no more (distance + threat exposure) than the grid path and avoids restricted airspace.
+
+Courses of action: commander's intent (`World.intent`) is part of the world state, so constraints, the
+validator and explanations all apply it. *Max effect* uses the tasked risk ceilings. *Min risk* scales every
+ceiling by 0.6 and prices each expected aircraft loss. *Defensive posture* defers strike/SEAD below P7, holds
+60% of each base's fighters for air defence and prices guided weapons. Each COA is solved as a churn-penalised
+retask from the current plan (launched missions frozen). Once a COA is adopted and approved, its intent persists.
 
 Fog forecasting: `GET /api/met?source=snapshot|live&threshold=0.5` returns per-base hourly P(fog) and
 the closures it implies. Retrain with `python -I tools/build_fog_model.py <cache-dir>`. It labels with IEM METAR

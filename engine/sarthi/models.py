@@ -5,6 +5,7 @@ Values above 1440 spill into the next day. All data is notional.
 """
 from __future__ import annotations
 
+import math
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -112,6 +113,19 @@ class Mission(BaseModel):
     label: str = ""
 
 
+class Intent(BaseModel):
+    """Commander's intent: standing planning guidance that every plan and retask honours."""
+
+    name: str = "Max effect"
+    risk_scale: float = 1.0      # multiplies every mission's acceptable route risk
+    loss_weight: float = 0.0     # objective penalty per expected aircraft loss, in priority points
+    reserve_extra: int = 0       # extra fighters held on alert at every fighter base
+    reserve_fraction: float = 0.0  # hold at least this share of each base's serviceable fighters on the ground
+    sortie_cost: int = 0         # extra objective cost per sortie flown (economy of force)
+    munitions_weight: int = 0    # objective cost per guided weapon expended (conserve stocks)
+    offensive_floor: int = 0     # defer strike/SEAD missions below this priority (defensive posture)
+
+
 class World(BaseModel):
     """Single fused state of everything the planner needs."""
 
@@ -127,6 +141,24 @@ class World(BaseModel):
     missions: dict[str, Mission]
     aar_extension: float = 1.5   # tanker support extends reach to radius * this
     fatigue_threshold: float = 77.0
+    intent: Intent = Field(default_factory=Intent)
+
+    def deferred(self, m: "Mission") -> bool:
+        """Offensive missions the current intent defers (never planned while it stands)."""
+        return m.role in (Role.STRIKE, Role.SEAD) and m.priority < self.intent.offensive_floor
+
+    def risk_ceiling(self, m: "Mission") -> float:
+        return m.max_risk * self.intent.risk_scale
+
+    def reserve(self, base: str) -> int:
+        """Fighters that must stay on the ground at `base` at every moment."""
+        b = self.bases[base]
+        fixed = b.fighter_reserve + (self.intent.reserve_extra if b.fighter_reserve > 0 else 0)
+        if self.intent.reserve_fraction <= 0:
+            return fixed
+        n = sum(1 for a in self.aircraft.values()
+                if a.base == base and a.serviceable and self.types[a.type].fighter)
+        return max(fixed, math.ceil(self.intent.reserve_fraction * n))
 
 
 class Sortie(BaseModel):

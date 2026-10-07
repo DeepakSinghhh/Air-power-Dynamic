@@ -8,7 +8,8 @@ retasking options in seconds, for a human commander to approve.
 
 - **Plan & roadmap:** [`docs/PLAN.md`](docs/PLAN.md)
 - **Core engine:** [`engine/`](engine/) (CP-SAT allocation, threat-aware routing, minimal-disruption retasking)
-- **UI:** [`frontend/`](frontend/) (offline COP map + synchronisation matrix + human-in-the-loop retask review)
+- **UI:** [`frontend/`](frontend/) (offline COP map + synchronisation matrix + human-in-the-loop retask review +
+  fog forecast + courses of action)
 
 ```bash
 ./run.sh          # builds the UI once, then serves everything at http://127.0.0.1:8000

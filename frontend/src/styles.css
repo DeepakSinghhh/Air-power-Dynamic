@@ -287,3 +287,23 @@ table.mini tr.clickable:hover td { background: var(--surface-2); }
 .wx-name .muted { font-size: 10px; }
 .wx-peak { text-align: right; font-size: 12px; color: var(--ink-2); }
 .wx-win { font-size: 11px; color: var(--ink-2); }
+
+/* ---------- courses of action ---------- */
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); z-index: 80; display: flex; align-items: flex-start; justify-content: center; padding-top: 70px; }
+.modal { width: min(1120px, 95vw); max-height: calc(100vh - 100px); overflow: auto; background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; padding: 16px 18px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6); }
+.modal-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 12px; }
+.modal-head h2 { margin: 0 0 2px; font-size: 18px; }
+.coa-grid { display: grid; grid-template-columns: 350px 1fr; gap: 24px; align-items: start; margin-bottom: 14px; }
+.coa-trades h5 { margin: 6px 0 8px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+.coa-trades p { margin: 0 0 10px; font-size: 13px; line-height: 1.45; color: var(--ink-2); max-width: 640px; }
+.coa-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.coa-table th { text-align: left; vertical-align: top; padding: 0 10px 10px; border-bottom: 1px solid var(--axis); width: 25%; }
+.coa-table td { padding: 6px 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); vertical-align: top; }
+.coa-rowlabel { color: var(--ink-2); width: 25%; }
+.coa-name { font-size: 15px; font-weight: 600; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.coa-desc { color: var(--muted); font-size: 11px; font-weight: 400; margin: 4px 0 6px; line-height: 1.35; }
+.coa-chips { display: flex; flex-wrap: wrap; gap: 4px; font-weight: 400; }
+.coa-best { font-weight: 700; }
+.coa-best-tag { margin-left: 6px; font-size: 10px; font-weight: 600; color: var(--ink); background: var(--surface-3); border-radius: 4px; padding: 0 5px; }
+.intent-chip { background: var(--surface-2); border: 1px solid var(--hairline); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--ink-2); cursor: pointer; white-space: nowrap; }
+.intent-chip b { color: var(--ink); font-weight: 600; }

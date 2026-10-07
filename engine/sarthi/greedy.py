@@ -37,7 +37,7 @@ def solve(world: World, cands: Candidates | None = None) -> Plan:
     fighter_iv = defaultdict(list)  # base -> busy fighter intervals
 
     def reserve_ok(base: str, s: int, e: int, extra: int) -> bool:
-        cap = fighters[base] - world.bases[base].fighter_reserve
+        cap = fighters[base] - world.reserve(base)
         overlapping = [(bs, be) for bs, be in fighter_iv[base] if bs < e and s < be]
         points = sorted({s} | {bs for bs, _ in overlapping if bs > s})
         return all(extra + sum(1 for bs, be in overlapping if bs <= p < be) <= cap for p in points)

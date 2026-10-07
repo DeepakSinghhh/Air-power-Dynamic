@@ -40,6 +40,8 @@ def validate(world: World, plan: Plan, cands: Candidates, frozen: set[str] = fro
                 errs.append(f"{mid}: {s.tail} lacks role {m.role.value}")
             if live and not ac.serviceable:
                 errs.append(f"{mid}: {s.tail} unserviceable")
+            if live and s.risk > world.risk_ceiling(m) + 1e-6:
+                errs.append(f"{mid}: {s.tail} risk {s.risk:.0%} above ceiling {world.risk_ceiling(m):.0%}")
             if live:
                 for c in world.bases[s.base].closures:
                     if c.start <= s.launch <= c.end or c.start <= s.recover <= c.end:
@@ -86,7 +88,7 @@ def validate(world: World, plan: Plan, cands: Candidates, frozen: set[str] = fro
             errs.append(f"{b}: {w} use {q} exceeds stock {world.bases[b].stocks.get(w, 0)}")
     for b, ivs in fighter_iv.items():
         cap = sum(1 for a in world.aircraft.values()
-                  if a.base == b and a.serviceable and world.types[a.type].fighter) - world.bases[b].fighter_reserve
+                  if a.base == b and a.serviceable and world.types[a.type].fighter) - world.reserve(b)
         for p in {s for s, _ in ivs}:
             if sum(1 for s, e in ivs if s <= p < e) > cap:
                 errs.append(f"{b}: alert reserve breached at {p}")

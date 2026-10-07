@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { create } from 'zustand'
 
 import { api } from './api'
-import type { AppState, EngineEvent, Hazard, MetResponse, MetSource, Preset, Proposal, Selection } from './types'
+import type { AppState, CoaResponse, EngineEvent, Hazard, MetResponse, MetSource, Preset, Proposal, Selection } from './types'
 
 export interface Layers {
   hazard: boolean
@@ -37,6 +37,8 @@ interface Store {
   metThreshold: number
   metLoading: boolean
   metError: string | null
+  coas: CoaResponse | null
+  coaOpen: boolean
 
   init: () => Promise<void>
   newScenario: (seed: number) => Promise<void>
@@ -57,6 +59,9 @@ interface Store {
   setTool: (t: Tool) => void
   dismissError: () => void
   loadMet: (source?: MetSource, threshold?: number) => Promise<void>
+  setCoaOpen: (open: boolean) => void
+  loadCoas: () => Promise<void>
+  adoptCoa: (id: string, name: string) => Promise<void>
 }
 
 const PLAN_SECONDS = 10
@@ -76,7 +81,8 @@ export const useStore = create<Store>((set, get) => {
   }
 
   const commit = (app: AppState) => {
-    set((s) => ({ app, proposal: null, presets: null, viewTime: Math.max(s.viewTime, app.world.now) }))
+    // Any committed change makes computed COAs stale.
+    set((s) => ({ app, proposal: null, presets: null, coas: null, viewTime: Math.max(s.viewTime, app.world.now) }))
     void get().loadMet()
   }
 
@@ -102,6 +108,8 @@ export const useStore = create<Store>((set, get) => {
     metThreshold: 0.5,
     metLoading: false,
     metError: null,
+    coas: null,
+    coaOpen: false,
 
     init: async () => {
       await run('Loading operational picture', async () => {
@@ -177,6 +185,18 @@ export const useStore = create<Store>((set, get) => {
     toggleLayer: (k) => set((s) => ({ layers: { ...s.layers, [k]: !s.layers[k] } })),
     setTool: (tool) => set({ tool }),
     dismissError: () => set({ error: null }),
+
+    setCoaOpen: (coaOpen) => set({ coaOpen }),
+
+    loadCoas: async () => {
+      const r = await run('Planning three courses of action', () => api.coas(6))
+      if (r) set({ coas: r })
+    },
+
+    adoptCoa: async (id, name) => {
+      const r = await run('Preparing proposal', () => api.coaPropose(id))
+      if (r) set({ proposal: r, proposalLabel: `Adopt COA: ${name}`, coaOpen: false })
+    },
 
     loadMet: async (source, threshold) => {
       const s = get()

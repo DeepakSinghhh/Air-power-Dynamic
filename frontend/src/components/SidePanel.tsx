@@ -4,7 +4,7 @@ import { eventTime, useStore, useView, type View } from '../store'
 import { C, FAMILY_COLOR, ROLE_NAME, STATUS_COLOR, STATUS_ICON, roleColor } from '../theme'
 import type { Base, EngineEvent, Mission, Threat } from '../types'
 import { FogChart, useMetForBase } from './Weather'
-import { baseStatus, fmtDur, fmtPct, fmtTime, haversineKm, routePath, serviceableAt } from '../util'
+import { baseStatus, fmtDur, reserveAt, fmtPct, fmtTime, haversineKm, routePath, serviceableAt } from '../util'
 
 export default function SidePanel() {
   const view = useView()!
@@ -107,6 +107,7 @@ function PlanSummary({ view }: { view: View }) {
           <dt>Decision time</dt><dd>{fmtTime(world.now)} (missions launched earlier are frozen)</dd>
           <dt>Fleet</dt><dd>{Object.values(world.aircraft).filter((a) => a.serviceable).length}/{Object.keys(world.aircraft).length} serviceable · {Object.keys(world.crews).length} crews</dd>
           <dt>Threats</dt><dd>{Object.keys(world.threats).length} known SAM sites</dd>
+          <dt>Intent</dt><dd>{world.intent.name}</dd>
         </dl>
         <p className="muted" style={{ fontSize: 12, marginTop: 10 }}>
           Select a mission, base, threat or aircraft on the map, list or timeline. Use <b>Inject event</b> to test the plan.
@@ -239,7 +240,7 @@ function BaseCard({ view, b }: { view: View; b: Base }) {
       <h5>Readiness</h5>
       <dl className="kv">
         <dt>Aircraft</dt><dd>{sv.serviceable}/{sv.total} serviceable · {tasked.size} tasked</dd>
-        <dt>Alert reserve</dt><dd>{b.fighter_reserve} fighters held at all times</dd>
+        <dt>Alert reserve</dt><dd>{reserveAt(world, b.id)} fighters held at all times{world.intent.name !== 'Max effect' ? ` (intent: ${world.intent.name})` : ''}</dd>
         <dt>Stocks</dt><dd>{Object.entries(b.stocks).map(([k, v]) => `${k} ${v}`).join(' · ') || 'none'}</dd>
         <dt>Closures</dt><dd>{b.closures.map((c) => `${fmtTime(c.start)}-${fmtTime(c.end)} ${c.reason}`).join('; ') || 'none'}</dd>
       </dl>

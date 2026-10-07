@@ -129,3 +129,17 @@ def test_frozen_tanker_is_not_double_booked():
     assert "B2" not in res.plan.assignments  # cannot steal the committed tanker
     assert validate(res.world, res.plan, candidates.build(res.world),
                     optimizer.frozen_missions(res.world, res.plan)) == []
+
+
+def test_coas_trade_off_and_respect_their_intents(planned):
+    from sarthi import coa
+    world, _, _, plan = planned
+    res = {c.id: (w, c) for w, c in coa.compare(world, plan, time_limit=5)}
+    for w, c in res.values():
+        assert validate(w, c.plan, candidates.build(w), optimizer.frozen_missions(w, c.plan)) == [], c.name
+    eff, risk, defend = res["effect"][1], res["risk"][1], res["defend"][1]
+    assert risk.metrics["expected_losses"] <= eff.metrics["expected_losses"]
+    assert risk.kpis["max_sortie_risk"] <= 0.6 * max(m.max_risk for m in world.missions.values()) + 1e-6
+    w_def = res["defend"][0]
+    assert not any(w_def.deferred(w_def.missions[m]) for m in defend.plan.assignments)
+    assert defend.metrics["munitions_total"] <= eff.metrics["munitions_total"]

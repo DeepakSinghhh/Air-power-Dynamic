@@ -99,7 +99,12 @@ def solve(world: World, cands: Candidates | None = None, baseline: Plan | None =
                 reserve_iv[p.base].append((iv, 1))
             if m.weapon:
                 stock_use[(p.base, m.weapon)].append(m.weapons_per_aircraft * v)
-            obj.append((p.quality - SORTIE_COST) * v)
+            intent = world.intent
+            cost = SORTIE_COST + intent.sortie_cost
+            cost += int(round(intent.loss_weight * VALUE_PER_PRIORITY * p.route.risk))  # expected loss
+            if m.weapon:
+                cost += intent.munitions_weight * m.weapons_per_aircraft
+            obj.append((p.quality - cost) * v)
 
         xs = [x[m.id, p.tail] for p in pairs]
         if m.role == Role.AIRLIFT:
@@ -181,7 +186,7 @@ def solve(world: World, cands: Candidates | None = None, baseline: Plan | None =
         b = world.bases[bid]
         n = sum(1 for a in world.aircraft.values()
                 if a.base == bid and a.serviceable and world.types[a.type].fighter)
-        model.add_cumulative([iv for iv, _ in ivs], [d for _, d in ivs], max(0, n - b.fighter_reserve))
+        model.add_cumulative([iv for iv, _ in ivs], [d for _, d in ivs], max(0, n - world.reserve(bid)))
 
     # Churn: reward keeping what was already planned, scaled by how close it is to launch.
     if baseline is not None and churn:

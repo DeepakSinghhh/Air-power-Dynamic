@@ -28,12 +28,15 @@ def explain_unassigned(world: World, cands: Candidates, plan: Plan) -> dict[str,
         rej = cands.rejects.get(m.id, {})
         top = ", ".join(f"{n}x {r}" for r, n in sorted(rej.items(), key=lambda kv: -kv[1])[:3])
         need = m.package if m.role != Role.AIRLIFT else None
-        if not pairs:
+        if world.deferred(m):
+            why.append(f"Deferred by commander's intent ({world.intent.name}): offensive missions below "
+                       f"P{world.intent.offensive_floor} are not flown.")
+        elif not pairs:
             why.append(f"No feasible aircraft. Screened out: {top or 'no aircraft with this role'}.")
             risky = [r for (mid, _), r in cands.routes.items() if mid == m.id]
             if any("risk" in r for r in rej) and risky:
                 best = min(r.risk for r in risky)
-                why.append(f"Least-risk route is {best:.0%} vs acceptable {m.max_risk:.0%}; "
+                why.append(f"Least-risk route is {best:.0%} vs acceptable {world.risk_ceiling(m):.0%}; "
                            f"a SEAD package or higher risk acceptance would open options.")
         else:
             tails = {p.tail for p in pairs}
