@@ -7,3 +7,4 @@ node_modules/
 dist/
 build/
 frontend/e2e/shots/
+frontend/e2e/video/

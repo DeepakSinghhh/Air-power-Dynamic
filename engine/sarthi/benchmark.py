@@ -12,6 +12,7 @@ import time
 from . import candidates, coa, greedy, optimizer
 from .kpi import kpis
 from .scenario import generate
+from .scenario_hadr import generate_hadr
 from .validate import validate
 
 
@@ -21,6 +22,7 @@ def main() -> None:
     ap.add_argument("--time-limit", type=float, default=10.0)
     ap.add_argument("--strikes", type=int, default=14, help="strike missions per scenario (load)")
     ap.add_argument("--coa", action="store_true", help="compare the courses of action instead")
+    ap.add_argument("--hadr", action="store_true", help="flood-relief scenario instead of the conflict one")
     args = ap.parse_args()
     if args.coa:
         return coa_benchmark(args)
@@ -28,7 +30,7 @@ def main() -> None:
     rows = []
     print(f"{'seed':>4} {'missions':>8} | {'greedy fulfil':>13} {'EV':>5} | {'sarthi fulfil':>13} {'EV':>5} {'t(s)':>6}")
     for seed in range(1, args.seeds + 1):
-        w = generate(seed, n_strike=args.strikes)
+        w = generate_hadr(seed) if args.hadr else generate(seed, n_strike=args.strikes)
         c = candidates.build(w)
         g = greedy.solve(w, c)
         p = optimizer.solve(w, c, hint=g, time_limit=args.time_limit)
@@ -36,6 +38,9 @@ def main() -> None:
         if errs:
             raise SystemExit(f"constraint violation on seed {seed}: {errs[:5]}")
         kg, kp = kpis(w, g), kpis(w, p)
+        if args.hadr:
+            kg["relief_t"], kp["relief_t"] = (sum(w.missions[m].cargo_t for m in x.assignments) /
+                                              sum(m.cargo_t for m in w.missions.values()) for x in (g, p))
         rows.append((kg, kp))
         print(f"{seed:>4} {len(w.missions):>8} | {kg['priority_weighted_fulfilment']:>13.0%} "
               f"{kg['expected_value']:>5.0%} | {kp['priority_weighted_fulfilment']:>13.0%} "
@@ -45,7 +50,7 @@ def main() -> None:
         return st.mean(r[side][key] for r in rows)
 
     print("-" * 64)
-    for key in ("priority_weighted_fulfilment", "expected_value", "mean_sortie_risk"):
+    for key in ("priority_weighted_fulfilment", "expected_value", "mean_sortie_risk") + (("relief_t",) if args.hadr else ()):
         g, p = mean(0, key), mean(1, key)
         print(f"{key:<30} greedy {g:6.1%}   sarthi {p:6.1%}   delta {p - g:+.1%}")
     print(f"{'solve_seconds (mean)':<30} greedy {mean(0, 'solve_seconds'):6.3f}   "

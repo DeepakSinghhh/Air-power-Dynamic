@@ -330,6 +330,7 @@ export default function MapView() {
   const wrapRef = useRef<HTMLDivElement>(null)
   const [basemap, setBasemap] = useState<{ countries: FC; rivers: FC } | null>(null)
   const [viewState, setViewState] = useState<MapViewState | null>(null)
+  const fittedTo = useRef('')
   const [tip, setTip] = useState<Tip | null>(null)
   const [cursor, setCursor] = useState<LonLat | null>(null)
 
@@ -337,10 +338,11 @@ export default function MapView() {
     void loadBasemap().then(setBasemap)
   }, [])
 
-  // Fit the theatre once we know the container size.
+  // Fit the theatre once we know the container size, and again when the scenario changes theatre.
+  const theatre = `${view.world.scenario}:${Object.keys(view.world.bases).sort().join(',')}`
   useEffect(() => {
     const el = wrapRef.current
-    if (!el || viewState) return
+    if (!el || (viewState && fittedTo.current === theatre)) return
     const { width, height } = el.getBoundingClientRect()
     if (width < 50 || height < 50) return
     const pts = [
@@ -354,8 +356,9 @@ export default function MapView() {
       [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
       { padding: 40 },
     )
+    fittedTo.current = theatre
     setViewState({ longitude: vp.longitude, latitude: vp.latitude, zoom: vp.zoom, pitch: 0, bearing: 0 })
-  }, [view, viewState])
+  }, [view, viewState, theatre])
 
   // Threat surface follows whatever is displayed (committed plan or pending proposal).
   const proposalId = view.proposal?.id
@@ -678,7 +681,7 @@ export default function MapView() {
           })
         }
       for (const z of Object.values(world.zones))
-        out.push({ key: `z:${z.id}`, kind: 'zone', pos: [z.lon, z.lat], text: z.reason, size: 10,
+        out.push({ key: `z:${z.id}`, kind: 'zone', pos: [z.lon, z.lat], text: z.reason.split(':')[0], size: 10,
           priority: LABEL_PRIORITY.zone, offset: [0, 0], anchor: 'middle', color: rgba(C.muted) })
     }
     return out
@@ -766,14 +769,15 @@ export default function MapView() {
         }),
       )
     if (tool && cursor) {
-      const km = tool === 'SAM-LR' ? 110 : 45
+      const km = tool === 'SAM-LR' ? 110 : tool === 'CB' ? 25 : 45
+      const col = tool === 'CB' ? C.ink2 : C.critical
       layers.push(
         new PolygonLayer({
           id: 'drop-preview',
           data: [cursor],
           getPolygon: (p: LonLat) => circle(p[1], p[0], km),
-          getFillColor: rgba(C.critical, 0.12),
-          getLineColor: rgba(C.critical, 0.9),
+          getFillColor: rgba(col, 0.12),
+          getLineColor: rgba(col, 0.9),
           getLineWidth: 1.5,
           lineWidthUnits: 'pixels',
         }),
@@ -802,6 +806,16 @@ export default function MapView() {
   const dropThreat = (lon: number, lat: number) => {
     if (!tool) return
     const at = eventTime()
+    if (tool === 'CB') {
+      let k = 1
+      while (`CB-${k}` in view.world.zones) k++
+      void propose(
+        [{ kind: 'new_zone', at, zone: { id: `CB-${k}`, lat: +lat.toFixed(3), lon: +lon.toFixed(3), radius_km: 25,
+          reason: 'Thunderstorm cell (CB): avoid' } }],
+        `Thunderstorm cell at ${lat.toFixed(2)}N ${lon.toFixed(2)}E`,
+      )
+      return
+    }
     let n = 1
     while (`POPUP-${String(n).padStart(2, '0')}` in view.world.threats) n++
     const lr = tool === 'SAM-LR'
@@ -900,10 +914,11 @@ export default function MapView() {
       </div>
       {tool && (
         <div className="map-overlay tool-hint">
-          Click the map to place a {tool === 'SAM-LR' ? 'long' : 'medium'}-range SAM · Esc to cancel
+          Click the map to place {tool === 'CB' ? 'a thunderstorm cell (25 km)' : `a ${tool === 'SAM-LR' ? 'long' : 'medium'}-range SAM`} · Esc to cancel
         </div>
       )}
-      <Legend hazard={layersOn.hazard} />
+      <Legend hazard={layersOn.hazard} hadr={view.world.scenario === 'hadr'}
+        families={new Set(Object.values(view.world.missions).map((m) => ROLE_FAMILY[m.role]))} />
       {tip && (
         <div className="tooltip" style={{ position: 'absolute', left: tip.x + 14, top: tip.y + 14 }}>
           {tip.body}
@@ -913,7 +928,7 @@ export default function MapView() {
   )
 }
 
-function Legend({ hazard }: { hazard: boolean }) {
+function Legend({ hazard, hadr, families }: { hazard: boolean; hadr: boolean; families: Set<Family> }) {
   const [open, setOpen] = useState(true)
   return (
     <div className="map-overlay legend" aria-label="Map legend">
@@ -922,7 +937,7 @@ function Legend({ hazard }: { hazard: boolean }) {
       </button>
       {open && (
         <>
-          {(Object.keys(FAMILY_COLOR) as Family[]).map((f) => (
+          {(Object.keys(FAMILY_COLOR) as Family[]).filter((f) => families.has(f)).map((f) => (
             <div key={f} className="row">
               <span className="key-line" style={{ borderColor: FAMILY_COLOR[f] }} />
               {FAMILY_LABEL[f]}
@@ -931,10 +946,17 @@ function Legend({ hazard }: { hazard: boolean }) {
           <div className="row">
             <span className="swatch hollow" style={{ borderColor: C.ink2 }} /> Objective not planned
           </div>
-          <div className="row">
-            <span className="key-ring" style={{ background: 'rgba(208,59,59,0.15)', border: `1.5px solid ${C.critical}` }} />
-            SAM envelope (dashed: intel age)
-          </div>
+          {hadr ? (
+            <div className="row">
+              <span className="key-ring" style={{ border: `1.5px dashed ${C.ink2}` }} />
+              Thunderstorm cell / restricted: avoid
+            </div>
+          ) : (
+            <div className="row">
+              <span className="key-ring" style={{ background: 'rgba(208,59,59,0.15)', border: `1.5px solid ${C.critical}` }} />
+              SAM envelope (dashed: intel age)
+            </div>
+          )}
           {hazard && (
             <div className="row">
               <span className="ramp" /> Threat surface: low → high

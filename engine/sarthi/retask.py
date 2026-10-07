@@ -89,7 +89,7 @@ def diff_plans(world: World, old: Plan, new: Plan) -> PlanDiff:
         old_r = {s.tail: s for s in a.sorties}
         for s in b.sorties:
             o = old_r.get(s.tail)
-            if o and abs(o.route_km - s.route_km) > 10:
+            if o and abs(o.route_km - s.route_km) > 2:  # routes are deterministic: any real difference is a reroute
                 details.append(f"{s.tail} rerouted {o.route_km:.0f} -> {s.route_km:.0f} km, "
                                f"risk {o.risk:.0%} -> {s.risk:.0%}")
         if a.tot != b.tot:

@@ -11,9 +11,9 @@ import numpy as np
 from pydantic import BaseModel
 
 from . import met
-from .events import AircraftDown, BaseClosure, Event, NewMission, NewThreat, StockLoss
-from .geo import fmt_time
-from .models import Mission, Plan, Role, Threat, World
+from .events import AircraftDown, BaseClosure, Event, NewMission, NewThreat, NewZone, StockLoss
+from .geo import fmt_time, haversine_km
+from .models import Mission, Plan, RestrictedZone, Role, Threat, World
 from .scenario import red_point
 from .threats import RiskField
 
@@ -71,8 +71,74 @@ def fog_preset(world: World, fallback_base: str, at: int, threshold: float = 0.5
                   events=[BaseClosure(at=at, base=b.id, start=s, end=e, reason="fog forecast, RVR below minima")])
 
 
+def hadr_presets(world: World, plan: Plan, at: int) -> list[Preset]:
+    """Flood-relief events: a new breach, rain at a busy airfield, a building thunderstorm, helicopters U/S."""
+    from .scenario_hadr import DISTRICTS, _near
+    rng = random.Random(at)
+    out: list[Preset] = []
+    name, lat, lon = rng.choice(DISTRICTS)
+    p = _near(rng, lat, lon)
+    mid = _unique("RSC", world.missions)
+    out.append(Preset(id="breach", label=f"Embankment breach near {name}: rescue {mid} (P10)",
+                      detail=f"~60 people marooned at {p[0]:.2f}N {p[1]:.2f}E, pick up {fmt_time(at + 60)}-{fmt_time(at + 180)}",
+                      events=[NewMission(at=at, mission=Mission(
+                          id=mid, role=Role.AIRLIFT, priority=10, lat=p[0], lon=p[1], tot_earliest=at + 60,
+                          tot_latest=at + 180, on_station_min=30, package=0, cargo_t=6.0, runway_m=0, max_risk=0.05,
+                          label=f"Rescue: ~60 people marooned near {name}"))]))
+
+    busy = [b for b in busiest_bases(world, plan, after=at + 60) if world.bases[b].id not in ("HDN", "AGR")]
+    if busy:
+        b = world.bases[busy[0]]
+        # Put the 2.5 h of rain over the base's busiest stretch of launches and recoveries.
+        moves = [t for a in plan.assignments.values() for s in a.sorties if s.base == b.id
+                 for t in (s.launch, s.recover) if t > at + 30]
+        start = max(moves, key=lambda s0: sum(s0 <= t <= s0 + 150 for t in moves)) if moves else at + 30
+        out.append(Preset(id="rain", label=f"Heavy rain closes {b.name} for 2.5 h",
+                          detail=f"Below landing minima {fmt_time(start)}-{fmt_time(start + 150)}",
+                          events=[BaseClosure(at=at, base=b.id, start=start, end=start + 150,
+                                              reason="heavy rain, below minima")]))
+
+    later = [a for a in plan.assignments.values() if min(s.launch for s in a.sorties) > at + 60
+             and world.missions.get(a.mission) and world.missions[a.mission].runway_m == 0 and a.sorties[0].route]
+    for a in sorted(later, key=lambda a: -world.missions[a.mission].priority):
+        path = a.sorties[0].route
+        c = path[len(path) // 2] if len(path) > 2 else ((path[0][0] + path[-1][0]) / 2, (path[0][1] + path[-1][1]) / 2)
+        m = world.missions[a.mission]
+        base = world.bases[a.sorties[0].base]
+        if min(haversine_km(*c, m.lat, m.lon), haversine_km(*c, base.lat, base.lon)) < 40:
+            continue
+        zid = _unique("CB", world.zones)
+        out.append(Preset(id="cb", label=f"Thunderstorm cell on {a.mission}'s route",
+                          detail=f"CB building at {c[0]:.2f}N {c[1]:.2f}E, avoid by 20 km",
+                          events=[NewZone(at=at, zone=RestrictedZone(id=zid, lat=round(c[0], 3), lon=round(c[1], 3),
+                                                                     radius_km=20, reason="Thunderstorm cell (CB): avoid"))]))
+        break
+
+    helos = sorted({s.tail for a in plan.assignments.values() for s in a.sorties
+                    if s.launch > at + 60 and world.aircraft[s.tail].type.startswith("HELO")})
+    if helos:
+        tails = sorted(rng.sample(helos, min(2, len(helos))))
+        out.append(Preset(id="mx", label=f"Helicopters unserviceable: {len(tails)}",
+                          detail="Chip warnings after the morning sorties: " + ", ".join(tails),
+                          events=[AircraftDown(at=at, tails=tails, reason="unserviceable (chip warning)")]))
+
+    name, lat, lon = rng.choice(DISTRICTS)
+    p = _near(rng, lat, lon, km=20.0)
+    did = _unique("DRP", world.missions)
+    s0 = max(at + 90, 360)
+    out.append(Preset(id="convoy", label=f"Road convoy to {name} cancelled: airlift 16 t ({did}, P8)",
+                      detail=f"Bridge washed away; food and water by air {fmt_time(s0)}-{fmt_time(s0 + 180)}",
+                      events=[NewMission(at=at, mission=Mission(
+                          id=did, role=Role.AIRLIFT, priority=8, lat=p[0], lon=p[1], tot_earliest=s0,
+                          tot_latest=s0 + 180, on_station_min=20, package=0, cargo_t=16.0, runway_m=0, max_risk=0.05,
+                          label=f"Relief drop: food and water, {name} (convoy cancelled)"))]))
+    return out
+
+
 def presets(world: World, plan: Plan, at: int) -> list[Preset]:
     at = max(at, world.now)
+    if world.scenario == "hadr":
+        return hadr_presets(world, plan, at)
     out: list[Preset] = []
     busy = busiest_bases(world, plan, after=at + 60)
 

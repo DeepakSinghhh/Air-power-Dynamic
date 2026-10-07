@@ -25,6 +25,7 @@ from .models import Plan, World
 from .presets import presets
 from .retask import RetaskResult, diff_plans, retask
 from .scenario import generate
+from .scenario_hadr import generate_hadr
 from .threats import RiskField, effective_envelope
 
 app = FastAPI(title="VAYU-SARTHI engine", version="0.2.0")
@@ -38,6 +39,7 @@ LIVE_MET_TTL_S = 1800
 
 class ScenarioReq(BaseModel):
     seed: int = 7
+    kind: str = "conflict"  # "conflict" | "hadr"
 
 
 class ProposeReq(BaseModel):
@@ -83,7 +85,8 @@ def get_state() -> dict:
 @api.post("/scenario")
 def new_scenario(req: ScenarioReq) -> dict:
     with LOCK:
-        STATE.update(world=generate(req.seed), plan=None, baseline_kpis=None, history=[], proposal=None,
+        world = generate_hadr(req.seed) if req.kind == "hadr" else generate(req.seed)
+        STATE.update(world=world, plan=None, baseline_kpis=None, history=[], proposal=None,
                      version=STATE["version"] + 1)
         return snapshot()
 

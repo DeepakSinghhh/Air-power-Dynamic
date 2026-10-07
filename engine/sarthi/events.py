@@ -6,7 +6,7 @@ from typing import Annotated, Literal, Union
 from pydantic import BaseModel, Field
 
 from .geo import fmt_time
-from .models import Mission, Threat, Window, World
+from .models import Mission, RestrictedZone, Threat, Window, World
 
 
 class _Event(BaseModel):
@@ -100,8 +100,18 @@ class StockLoss(_Event):
         return f"{self.qty}x {self.weapon} lost at {w.bases[self.base].name}"
 
 
+class NewZone(_Event):
+    """Airspace to avoid from now on: a thunderstorm cell, a temporary restriction."""
+    kind: Literal["new_zone"] = "new_zone"
+    zone: RestrictedZone
+
+    def apply(self, w: World) -> str:
+        w.zones[self.zone.id] = self.zone
+        return f"{self.zone.reason}: {self.zone.id}, {self.zone.radius_km:.0f} km at {self.zone.lat:.2f}, {self.zone.lon:.2f}"
+
+
 Event = Annotated[Union[BaseClosure, AircraftDown, CrewDown, NewThreat, NewMission, CancelMission,
-                        PriorityChange, StockLoss],
+                        PriorityChange, StockLoss, NewZone],
                   Field(discriminator="kind")]
 
 

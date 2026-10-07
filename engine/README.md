@@ -10,14 +10,16 @@ pip install -e ".[api,dev]"
 python -m sarthi.demo                 # plan a 24 h day, then fog / pop-up SAM / MX alert / TST retasks
 python -m sarthi.benchmark --seeds 20 # optimiser vs greedy manual-planner baseline
 python -m sarthi.benchmark --coa      # the three courses of action, side by side
-python -m pytest -q                   # 26 tests, incl. constraint validation, API flow, fog model, COAs, spares
+python -m sarthi.benchmark --hadr     # flood-relief scenario: optimiser vs greedy, incl. relief tonnage
+python -m pytest -q                   # 28 tests, incl. constraint validation, API flow, fog model, COAs, spares, HADR
 uvicorn sarthi.api:app --reload       # REST API under /api (docs at /docs); serves the UI if built
 ```
 
 | Module | Purpose |
 |---|---|
 | `models.py` | Typed domain model (times are minutes from 00:00 D-day), including commander's intent |
-| `scenario.py` | Seeded notional scenario generator |
+| `scenario.py` | Seeded notional scenario generator (western front) |
+| `scenario_hadr.py` | Seeded notional flood-relief scenario (Assam and Bihar): NDRF lift, helicopter rescue and relief drops |
 | `threats.py` | SAM hazard field, intel-age inflation, SEAD suppression, Dijkstra routing |
 | `fatigue.py` | Two-process crew effectiveness model → fit TOT windows |
 | `candidates.py` | Feasibility screening, TOT domains, reason codes |
@@ -39,6 +41,7 @@ Retasking is human-in-the-loop: a proposal only takes effect when approved.
 
 ```bash
 curl -X POST localhost:8000/api/scenario -H 'content-type: application/json' -d '{"seed": 7}'
+curl -X POST localhost:8000/api/scenario -H 'content-type: application/json' -d '{"seed": 7, "kind": "hadr"}'
 curl -X POST 'localhost:8000/api/plan?time_limit=8'
 curl 'localhost:8000/api/presets?at=120'                      # ready-made events for "now"
 curl -X POST localhost:8000/api/retask/propose -H 'content-type: application/json' -d \
@@ -67,6 +70,14 @@ the target (the ingress half of the two-way route risk), enough tankers turn up,
 succeeded. Ground spares are a greedy, purely additive post-pass over idle aircraft: same base and type as a package
 element, booked for the sortie, loaded from stock, and off the alert reserve while standing by. Once approved, they are
 re-chosen after every retask, and a spare is the cheapest substitute when a primary goes unserviceable.
+
+HADR (flood relief): the same engine with a different mission set. Fixed-wing transports lift NDRF teams and stores
+to forward airfields; the runway length decides which types can land (`Mission.runway_m`, `AircraftType.min_runway_m`;
+0 means helicopters only). Helicopters fly rescue, medical and relief-drop sorties to marooned clusters, and UAVs map the
+flood. `World.domestic_only` masks the routing grid to India's boundary, so flights use the Siliguri corridor and never
+overfly neighbouring countries. Thunderstorm cells are restricted zones, and a `new_zone` event adds one. HADR presets:
+embankment breach (new P10 rescue), heavy rain at the busiest airfield, a thunderstorm cell on a route, helicopters
+unserviceable, a road convoy cancelled.
 
 Fog forecasting: `GET /api/met?source=snapshot|live&threshold=0.5` returns per-base hourly P(fog) and
 the closures it implies. Retrain with `python -I tools/build_fog_model.py <cache-dir>`. It labels with IEM METAR

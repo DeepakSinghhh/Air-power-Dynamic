@@ -45,7 +45,9 @@ def solve(world: World, cands: Candidates | None = None) -> Plan:
     plan = Plan(solver="greedy", status="FEASIBLE")
     order = sorted(world.missions.values(), key=lambda m: (-m.priority, m.role != Role.SEAD, m.tot_earliest))
     for m in order:
-        pairs = sorted(cands.pairs.get(m.id, []), key=lambda p: p.route.km)
+        # Nearest first; for airlift, the aircraft that carry most of the load first (fewest airframes).
+        pairs = sorted(cands.pairs.get(m.id, []),
+                       key=lambda p: (-min(p.payload_t, m.cargo_t) if m.role == Role.AIRLIFT else 0, p.route.km))
         if not pairs:
             continue
         lo, hi = m.tot_earliest, m.tot_latest

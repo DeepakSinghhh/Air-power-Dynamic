@@ -62,6 +62,7 @@ def solve(world: World, cands: Candidates | None = None, baseline: Plan | None =
 
     # Frozen missions: fixed resource consumption, copied verbatim to the output.
     stocks = {(b.id, w): q for b in world.bases.values() for w, q in b.stocks.items()}
+    crew_done = defaultdict(lambda: [0, 0])  # crew -> [sorties, flight minutes] already committed
     for mid in frozen:
         a = baseline.assignments[mid]
         m = world.missions[mid]
@@ -72,6 +73,8 @@ def solve(world: World, cands: Candidates | None = None, baseline: Plan | None =
             if s.crew:
                 crew_iv[s.crew].append(model.new_fixed_size_interval_var(
                     s.launch - BRIEF_MIN, s.recover - s.launch + BRIEF_MIN + DEBRIEF_MIN + CREW_REST_MIN, ""))
+                crew_done[s.crew][0] += 1
+                crew_done[s.crew][1] += s.recover - s.launch
             if m.weapon:
                 stocks[(s.base, m.weapon)] = stocks.get((s.base, m.weapon), 0) - m.weapons_per_aircraft
             if t and t.fighter:
@@ -178,8 +181,9 @@ def solve(world: World, cands: Candidates | None = None, baseline: Plan | None =
             model.add_no_overlap(ivs)
     for c, loads in crew_load.items():
         crew = world.crews[c]
-        model.add(sum(v for v, _ in loads) <= crew.max_sorties)
-        model.add(sum(v * mins for v, mins in loads) <= crew.max_flight_min)
+        done_n, done_min = crew_done[c]
+        model.add(sum(v for v, _ in loads) <= crew.max_sorties - done_n)
+        model.add(sum(v * mins for v, mins in loads) <= crew.max_flight_min - done_min)
     for key, terms in stock_use.items():
         model.add(sum(terms) <= max(0, stocks.get(key, 0)))
     for bid, ivs in reserve_iv.items():

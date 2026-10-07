@@ -16,11 +16,15 @@ cd engine && uvicorn sarthi.api:app --reload      # terminal 1
 cd frontend && npm run dev                         # terminal 2
 ```
 
+Demo video (backup for the live demo): with the server running, `npm run demo-video` records a captioned ~4-minute
+walkthrough of docs/PLAN.md section 11 to `e2e/video/demo.mp4` (Playwright + ffmpeg; everything solves live).
+
 Checks: `npm run typecheck`, `npm run build`, and with the server running `npm run e2e`
 (Playwright: plan → COA compare → adopt Min risk → approve → intent persists → robustness → ground spares → approve →
 what-if aircraft lost → reject → fog forecast → propose closures →
 approve → no duplicate closures → threshold change → time-sensitive target → drop SAM + threat surface → base fog
-card → playback; fails on any console error and saves a failure screenshot).
+card → playback → flood-relief scenario → breach rescue → approve → thunderstorm cell; fails on any console error and
+saves a failure screenshot).
 
 ## Screens
 
@@ -70,6 +74,14 @@ card → playback; fails on any console error and saves a failure screenshot).
 - **Propose ground spares** holds idle aircraft as spares (0 flying changes). In the aircraft view a spare is a dashed bar
   with its stand-by start-up filled. The mission card lists its spares, and the Sorties tile shows the spare count.
 
+**Flood relief (HADR)**
+- *Scenario ▾ → Flood relief (HADR)* plans a monsoon flood day in Assam and Bihar with the same engine. The map refits
+  to the theatre. The last KPI tile becomes *Relief lifted* (tonnes planned of tonnes requested). The COA and fog
+  panels are hidden (no adversary; the fog model is for north Indian winters).
+- Thunderstorm cells are dashed circles that routes avoid. *Inject event → Draw a thunderstorm cell* places one, and the
+  HADR presets add a breach rescue, rain at the busiest airfield, a cell on a route, helicopters U/S and a cancelled
+  road convoy. Mission cards show the landing constraint (runway length, or helicopters only).
+
 **Retask workflow (human in the loop)**: Inject event → proposal (diff, *naive re-plan would change N*,
 KPI deltas vs current plan) → **Approve & issue** or **Reject**. Every decision is logged.
 Detail cards for missions, bases, threats and aircraft include "what-if" actions (close a base,
@@ -92,5 +104,6 @@ ground an aircraft, raise priority, cancel mission) that go through the same pro
 | `src/components/CoaPanel.tsx` | Courses-of-action comparison (scatter, trade sentences, table, adopt) |
 | `src/components/RobustPanel.tsx` | Robustness: outcome distribution, fragile missions, single points of failure, ground spares |
 | `e2e/smoke.mjs` | Browser end-to-end test with screenshots |
+| `e2e/demo.mjs` | Captioned demo walkthrough recorded to video |
 
 The basemap is rebuilt from Natural Earth with `python -I tools/build_basemap.py` (see that file).

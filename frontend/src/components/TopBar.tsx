@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { useStore, useView } from '../store'
-import type { Kpis } from '../types'
+import type { Kpis, ScenarioKind } from '../types'
 import { fmtPct, fmtTime } from '../util'
 import CoaPanel from './CoaPanel'
 import RobustPanel from './RobustPanel'
@@ -42,7 +42,7 @@ function Tile(props: {
   )
 }
 
-function kpiTiles(k: Kpis, ref: Kpis | null, refLabel: string) {
+function kpiTiles(k: Kpis, ref: Kpis | null, refLabel: string, hadr: boolean) {
   const pts = (a: number, b: number) => `${a - b >= 0 ? '+' : ''}${((a - b) * 100).toFixed(1)} pts`
   const n = (a: number, b: number) => `${a - b >= 0 ? '+' : ''}${a - b}`
   return [
@@ -62,10 +62,18 @@ function kpiTiles(k: Kpis, ref: Kpis | null, refLabel: string) {
       better="up" refLabel="" />,
     <Tile key="s" label="Sorties" value={`${k.sorties}`}
       deltaText={[k.tanker_sorties ? `+${k.tanker_sorties} tanker` : 'no tanker', k.spares ? `${k.spares} spares` : ''].filter(Boolean).join(' · ')} />,
-    <Tile key="r" label="Mean sortie risk" value={fmtPct(k.mean_sortie_risk, 1)}
-      delta={ref ? k.mean_sortie_risk - ref.mean_sortie_risk : undefined}
-      deltaText={ref ? pts(k.mean_sortie_risk, ref.mean_sortie_risk) : undefined}
-      better="down" refLabel="" />,
+    hadr ? (
+      <Tile key="t" label="Relief lifted" value={`${Math.round(k.cargo_planned_t)} / ${Math.round(k.cargo_total_t)} t`}
+        title="Tonnes of relief, rescue and stores planned for delivery, of the total requested"
+        delta={ref ? k.cargo_planned_t - ref.cargo_planned_t : undefined}
+        deltaText={ref ? `${k.cargo_planned_t - ref.cargo_planned_t >= 0 ? '+' : ''}${Math.round(k.cargo_planned_t - ref.cargo_planned_t)} t` : undefined}
+        better="up" refLabel="" />
+    ) : (
+      <Tile key="r" label="Mean sortie risk" value={fmtPct(k.mean_sortie_risk, 1)}
+        delta={ref ? k.mean_sortie_risk - ref.mean_sortie_risk : undefined}
+        deltaText={ref ? pts(k.mean_sortie_risk, ref.mean_sortie_risk) : undefined}
+        better="down" refLabel="" />
+    ),
   ]
 }
 
@@ -79,6 +87,7 @@ function EventMenu() {
   const busy = useStore((s) => s.busy)
   const viewTime = useStore((s) => s.viewTime)
   const now = useStore((s) => s.app?.world.now ?? 0)
+  const hadr = useStore((s) => s.app?.world.scenario === 'hadr')
   const ref = useRef<HTMLDivElement>(null)
   const at = Math.max(now, Math.round(viewTime / 5) * 5)
 
@@ -119,14 +128,23 @@ function EventMenu() {
             </button>
           ))}
           <h4>Place on map</h4>
-          <button className="menu-item" role="menuitem" onClick={() => { setOpen(false); setTool('SAM-MR') }}>
-            <b>Drop a medium-range SAM</b>
-            <span>Click anywhere on the map · 45 km envelope, Pk 0.5</span>
-          </button>
-          <button className="menu-item" role="menuitem" onClick={() => { setOpen(false); setTool('SAM-LR') }}>
-            <b>Drop a long-range SAM</b>
-            <span>Click anywhere on the map · 110 km envelope, Pk 0.55</span>
-          </button>
+          {hadr ? (
+            <button className="menu-item" role="menuitem" onClick={() => { setOpen(false); setTool('CB') }}>
+              <b>Draw a thunderstorm cell</b>
+              <span>Click anywhere on the map · 25 km, routes must avoid it</span>
+            </button>
+          ) : (
+            <>
+              <button className="menu-item" role="menuitem" onClick={() => { setOpen(false); setTool('SAM-MR') }}>
+                <b>Drop a medium-range SAM</b>
+                <span>Click anywhere on the map · 45 km envelope, Pk 0.5</span>
+              </button>
+              <button className="menu-item" role="menuitem" onClick={() => { setOpen(false); setTool('SAM-LR') }}>
+                <b>Drop a long-range SAM</b>
+                <span>Click anywhere on the map · 110 km envelope, Pk 0.55</span>
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -136,6 +154,8 @@ function EventMenu() {
 function ScenarioMenu() {
   const [open, setOpen] = useState(false)
   const [seed, setSeed] = useState(7)
+  const current = useStore((s) => s.app?.world.scenario ?? 'conflict')
+  const [kind, setKind] = useState<ScenarioKind>(current)
   const newScenario = useStore((s) => s.newScenario)
   const replan = useStore((s) => s.replan)
   const busy = useStore((s) => s.busy)
@@ -148,10 +168,19 @@ function ScenarioMenu() {
       {open && (
         <div className="menu" style={{ width: 300 }}>
           <h4>Notional scenario</h4>
+          <div className="seg" role="group" aria-label="Scenario type" style={{ margin: '0 12px 6px' }}>
+            <button aria-pressed={kind === 'conflict'} onClick={() => setKind('conflict')}>Western front</button>
+            <button aria-pressed={kind === 'hadr'} onClick={() => setKind('hadr')}>Flood relief (HADR)</button>
+          </div>
+          <div className="menu-row muted" style={{ fontSize: 11 }}>
+            {kind === 'hadr'
+              ? 'Monsoon floods in Assam and Bihar: NDRF lift, helicopter rescue and relief drops, domestic airspace only.'
+              : 'Air tasking day: strike, SEAD, counter-air, CAS, ISR, tankers and airlift against notional SAMs.'}
+          </div>
           <div className="menu-row">
             Seed
             <input type="number" min={1} value={seed} onChange={(e) => setSeed(Number(e.target.value) || 1)} />
-            <button className="btn small" onClick={() => { setOpen(false); void newScenario(seed) }}>
+            <button className="btn small" onClick={() => { setOpen(false); void newScenario(seed, kind) }}>
               Generate &amp; plan
             </button>
           </div>
@@ -170,7 +199,8 @@ function IntentChip() {
   const intent = useStore((s) => s.app?.world.intent.name)
   const setOpen = useStore((s) => s.setCoaOpen)
   const hasPlan = useStore((s) => !!s.app?.plan)
-  if (!intent || !hasPlan) return null
+  const hadr = useStore((s) => s.app?.world.scenario === 'hadr')
+  if (!intent || !hasPlan || hadr) return null
   return (
     <button className="intent-chip" onClick={() => setOpen(true)} title="Compare courses of action">
       Intent: <b>{intent}</b> · COAs ▸
@@ -226,13 +256,13 @@ export default function TopBar() {
         </div>
       </div>
       <div className="kpis dim-when-busy">
-        {view?.kpis && kpiTiles(view.kpis, view.reference, view.referenceLabel)}
+        {view?.kpis && kpiTiles(view.kpis, view.reference, view.referenceLabel, view.world.scenario === 'hadr')}
       </div>
       <div className="actions">
         <BusyPill />
         <IntentChip />
         <RobustChip />
-        <WeatherMenu />
+        {view?.world.scenario !== 'hadr' && <WeatherMenu />}
         <EventMenu />
         <ScenarioMenu />
       </div>

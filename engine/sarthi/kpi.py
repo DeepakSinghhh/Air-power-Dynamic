@@ -20,6 +20,8 @@ def kpis(world: World, plan: Plan) -> dict:
         "spares": sum(len(a.spares) for a in plan.assignments.values()),
         "sorties": sum(len(a.sorties) for a in plan.assignments.values()),
         "tanker_sorties": sum(len(a.tankers) for a in plan.assignments.values()),
+        "cargo_planned_t": round(sum(world.missions[m].cargo_t for m in plan.assignments if m in world.missions), 1),
+        "cargo_total_t": round(sum(m.cargo_t for m in world.missions.values()), 1),
         "mean_sortie_risk": round(float(np.mean(risks)), 4) if risks else 0.0,
         "max_sortie_risk": round(float(np.max(risks)), 4) if risks else 0.0,
         "solve_seconds": plan.solve_seconds,

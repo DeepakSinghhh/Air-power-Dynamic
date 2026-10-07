@@ -1,4 +1,4 @@
-import type { AppState, CoaResponse, EngineEvent, Hazard, MetResponse, MetSource, Preset, Proposal, RobustnessResponse } from './types'
+import type { AppState, CoaResponse, EngineEvent, Hazard, MetResponse, MetSource, Preset, Proposal, RobustnessResponse, ScenarioKind } from './types'
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -20,7 +20,8 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   state: () => call<AppState>('/state'),
-  scenario: (seed: number) => call<AppState>('/scenario', { method: 'POST', body: JSON.stringify({ seed }) }),
+  scenario: (seed: number, kind: ScenarioKind = 'conflict') =>
+    call<AppState>('/scenario', { method: 'POST', body: JSON.stringify({ seed, kind }) }),
   plan: (timeLimit = 10) => call<AppState>(`/plan?time_limit=${timeLimit}`, { method: 'POST' }),
   hazard: (proposal: boolean) => call<Hazard>(`/hazard${proposal ? '?proposal=true' : ''}`),
   presets: (at: number) => call<Preset[]>(`/presets?at=${Math.round(at)}`),

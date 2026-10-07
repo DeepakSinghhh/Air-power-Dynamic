@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { create } from 'zustand'
 
 import { api } from './api'
-import type { AppState, CoaResponse, EngineEvent, Hazard, MetResponse, MetSource, Preset, Proposal, RobustnessResponse, Selection } from './types'
+import type { AppState, CoaResponse, EngineEvent, Hazard, MetResponse, MetSource, Preset, Proposal, RobustnessResponse, ScenarioKind, Selection } from './types'
 
 export interface Layers {
   hazard: boolean
@@ -13,7 +13,7 @@ export interface Layers {
   rivers: boolean
 }
 
-export type Tool = null | 'SAM-MR' | 'SAM-LR'
+export type Tool = null | 'SAM-MR' | 'SAM-LR' | 'CB'
 
 interface Store {
   app: AppState | null
@@ -43,7 +43,7 @@ interface Store {
   robustOpen: boolean
 
   init: () => Promise<void>
-  newScenario: (seed: number) => Promise<void>
+  newScenario: (seed: number, kind?: ScenarioKind) => Promise<void>
   replan: () => Promise<void>
   loadPresets: () => Promise<void>
   propose: (events: EngineEvent[], label: string) => Promise<void>
@@ -89,7 +89,9 @@ export const useStore = create<Store>((set, get) => {
   const commit = (app: AppState) => {
     // Any committed change makes computed COAs stale.
     set((s) => ({ app, proposal: null, presets: null, coas: null, robust: null, viewTime: Math.max(s.viewTime, app.world.now) }))
-    void get().loadMet()
+    // The fog model is trained on north Indian winter fog; it does not apply to the monsoon flood scenario.
+    if (app.world.scenario === 'hadr') set({ met: null })
+    else void get().loadMet()
   }
 
   return {
@@ -131,10 +133,10 @@ export const useStore = create<Store>((set, get) => {
       })
     },
 
-    newScenario: async (seed) => {
-      await run(`Generating scenario ${seed}`, async () => {
-        const fresh = await api.scenario(seed)
-        set({ app: fresh, proposal: null, selection: null, viewTime: fresh.world.now, hazard: null })
+    newScenario: async (seed, kind = 'conflict') => {
+      await run(`Generating ${kind === 'hadr' ? 'flood-relief' : ''} scenario ${seed}`.replace('  ', ' '), async () => {
+        const fresh = await api.scenario(seed, kind)
+        set({ app: fresh, proposal: null, selection: null, viewTime: fresh.world.now, hazard: null, met: null, coas: null, robust: null })
         set({ busy: { label: 'Optimising air tasking plan', since: performance.now() } })
         commit(await api.plan(PLAN_SECONDS))
       })

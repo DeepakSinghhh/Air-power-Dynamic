@@ -32,6 +32,7 @@ this repo (`engine/`):
 Measured against a greedy "manual planner" baseline over 20 random scenarios (33–39 missions,
 96 aircraft, ~160 crews): **+12.4 pts priority-weighted mission fulfilment (85.1% → 97.5%)
 and +13.5 pts expected mission value (65.3% → 78.8%)**. Every plan passes an independent constraint checker.
+The same engine plans **flood relief (HADR)**: 94.5% of requested relief tonnage vs 81.6% for the greedy planner.
 The commander also sees the same situation planned under **three intents** (Max effect / Min risk /
 Defensive posture) side by side in ~6 s, with each trade spelled out: *"Min risk gives up 17.4 pts of
 effect (6 missions); in return it cuts expected losses 70%…"*.
@@ -149,7 +150,7 @@ plans and retasking options in seconds, for a commander to approve.
 | Robustness | One plan, no confidence | **Monte Carlo execution** with cascades (tanker no-show, SEAD lost → strike aborts): p05/p50/p95, what fails and why, single points of failure with a one-click *what if?*, and **ground spares** from idle aircraft (+3 pts on a bad day, zero flying changes) |
 | Prediction | Charts | Predictions **feed the optimiser** (fog closure windows, maintenance risk, fatigue windows), so retasking is proactive |
 | Deployability | Cloud + public LLM API | **Air-gapped**: offline maps, local open-weight LLM, DDIL edge nodes, audit trail, human approval |
-| Dual-use | Combat only | Same engine plans **HADR / logistics airlift** (fits the Transportation & Logistics theme) |
+| Dual-use | Combat only | Same engine plans **flood relief (HADR)**: runway-aware airlift, helicopter rescue where there is no runway, domestic airspace only, thunderstorm avoidance (fits the Transportation & Logistics theme) |
 
 **Positioning against real systems.** The USAF's Kessel Run tools (Slapshot for MAAP, KRADOS replacing
 TBMCS) digitised ATO workflow ([Air & Space Forces](https://www.airandspaceforces.com/afcent-can-now-generate-air-tasking-orders-in-the-cloud/)).
@@ -375,7 +376,32 @@ effect, because fighters are not the binding resource (at most ~18 of 66 are air
 with Defensive posture, which changes what is flown. **Next:** custom intent sliders, and an ε-constraint
 sweep that draws the whole effect-vs-losses Pareto front.
 
-### 6.10 Copilot (next)
+### 6.10 Same engine, flood relief (built: `scenario_hadr.py`)
+A seeded monsoon flood day in Assam and Bihar, planned and retasked by the unchanged optimiser. Only data and three
+small, general constraints are new:
+- **Runway-aware landing.** `Mission.runway_m` vs `AircraftType.min_runway_m`. Heavy lift needs 2,000 m and medium lift
+  1,100 m, so a 1,400 m strip (Lilabari) gets medium lift only. 0 m means helicopters only (marooned clusters).
+- **Domestic airspace.** `World.domestic_only` masks the routing grid to India's boundary. Relief flights to the
+  north-east use the Siliguri corridor: Barrackpore → Guwahati is 760 km instead of 496 km over Bangladesh.
+- **Weather avoidance.** Thunderstorm cells are restricted zones that routes go around, and a `new_zone` event (or the
+  map tool) adds one. Afternoon heavy rain closes airfields.
+
+Missions: NDRF and relief-store lifts to forward airfields, rescues (~20–80 people, two at night needing NVG-qualified
+crews), medical teams, relief drops (6–16 t) and UAV flood mapping. Presets: an embankment breach (a new P10 rescue),
+heavy rain at the busiest airfield over its busiest 2.5 h, a cell on a high-priority route, helicopters U/S, and a
+road convoy cancelled (16 t more by air). Robustness and ground spares work unchanged, and matter more here because
+helicopter serviceability dominates.
+
+| Flood relief, 20 scenarios | Greedy planner | VAYU-SARTHI |
+|---|---|---|
+| Priority-weighted fulfilment | 85.1% | **96.3%** |
+| Relief tonnage planned (of requested) | 81.6% | **94.5%** |
+| Expected value (serviceability) | 69.1% | **78.6%** |
+
+The greedy baseline picks the aircraft that carry the most of the load first (a human planner would not send light
+helicopters for a 16 t drop), so the gap is not an artefact of a weak baseline.
+
+### 6.11 Copilot (next)
 A local open-weight LLM with tools `get_plan`, `why_not(mission)`, `what_if(events)`,
 `compare_coas`, `brief(mission)`. Optional RAG over *public* doctrine documents for terminology. Guardrails:
 the LLM can only read and propose; every state change goes through the approval workflow; all
@@ -415,10 +441,11 @@ Run everything with `./run.sh`, then open http://127.0.0.1:8000. It works offlin
 | Retask review | Inject an event (6 context-aware presets or map tools) → proposal with diff, **"naive re-plan would change N"**, KPI deltas → Approve / Reject → decision log |
 | Weather | Fog forecast panel: per-base hourly P(fog) from the MOS model, cached dense-fog night or live Open-Meteo, commander's risk threshold → proposed closures; observed METAR overlay where available; base-card chart; P(fog) cells on the timeline |
 | Robustness | 2,000 simulated executions (no replanning): distribution current vs with ground spares, p05/p50/p95, what fails most and why, single points of failure with **What if?** → retask proposal; **Propose ground spares** → approve; spares drawn as dashed bars in the aircraft view |
+| Flood relief (HADR) | Scenario ▾ → Flood relief: monsoon flood day in Assam and Bihar; *Relief lifted* tile; thunderstorm cells (and a map tool to draw one); breach / rain / cell / helicopters U/S / convoy presets |
 | Courses of action | Intent chip in the top bar → three COAs solved in parallel (~6 s): losses-vs-fulfilment scatter, one computed trade sentence per COA, table (fulfilment, expected value, losses, worst sortie risk, sorties, guided weapons, fighters on the ground, p05 robustness) → **Adopt** = a normal proposal |
 | Detail cards | Mission (package, crews, "why not planned", raise priority, cancel), base (readiness, stocks, close it), threat (intel age, routes in reach), aircraft (P(serviceable), sorties, ground it) |
 
-**Engine (`engine/`, Python + OR-Tools CP-SAT, 26 passing tests):**
+**Engine (`engine/`, Python + OR-Tools CP-SAT, 28 passing tests):**
 
 | Module | Status |
 |---|---|
@@ -429,6 +456,7 @@ Run everything with `./run.sh`, then open http://127.0.0.1:8000. It works offlin
 | `candidates.py` | Feasibility screening with reason codes and TOT domains |
 | `optimizer.py` | CP-SAT allocation: packages, crews, tankers (with explicit sorties), weapons, weather, alert reserve, dependencies, churn |
 | `greedy.py` | Manual-planner baseline under identical constraints |
+| `scenario_hadr.py` | Flood-relief scenario: runway-aware airlift, helicopter rescue, domestic airspace, thunderstorm cells (6.10) |
 | `retask.py`, `events.py`, `presets.py` | Events (closure, aircraft/crew down, pop-up threat, new/cancelled mission, priority change, stock loss) → retask → diff |
 | `explain.py` | "Why not?" explanations |
 | `kpi.py` | KPIs, COA trade-off metrics |
@@ -482,7 +510,8 @@ aircraft. All 24 COA plans pass the independent validator under their own intent
 ### 9.0 Sprint to 20 October
 
 The engine, COP map, sync matrix, retask review, predictive fog, COA comparison and robustness panel already
-work (§8), so the rest of the sprint goes on the HADR scenario and the pitch.
+work (§8), as do the HADR scenario, the idea deck and a scripted demo video, so the rest of the sprint is rehearsal,
+review and polish.
 
 | Dates | Deliverable | Owner |
 |---|---|---|
@@ -491,7 +520,8 @@ work (§8), so the rest of the sprint goes on the HADR scenario and the pitch.
 | Oct 7 | ✅ **Predictive fog:** MOS model on Open-Meteo NWP trained on real METARs (held-out Brier skill +44%), Weather panel, closures with probability, offline snapshot | - |
 | Oct 7 | ✅ **Robustness panel**: one success model for the KPI and the Monte Carlo spread, fragile missions with causes, single points of failure + *what if?*, ground spares from idle aircraft | - |
 | Oct 7 | ✅ **3 COAs** from commander's intent (Max effect / Min risk / Defensive posture), solved in parallel; scatter + trade sentences + table; adopt → approve; the intent persists | - |
-| Oct 12–13 | **HADR scenario** (relief airlift to a flood district) as a second seed, for the dual-use / impact slide. | Optimisation |
+| Oct 7 | ✅ **HADR scenario** (flood relief, Assam and Bihar): runway-aware airlift, helicopter rescue, domestic airspace, thunderstorm cells, presets | - |
+| Oct 7 | ✅ **Idea deck** (`docs/VAYU-SARTHI_SIH2026_idea.pptx`, built from real screenshots by `tools/build_deck.py`) and **demo video** script (`npm run demo-video`) | - |
 | Oct 14–15 | Deck (§12) with real screenshots and the §8 benchmark tables. Rehearse §11. | Pitch |
 | Oct 16–17 | Record a 3-minute demo video using presets (plus a backup take). | Pitch + Frontend |
 | Oct 18 | **Feature freeze.** Only bug fixes after this. | All |
@@ -506,7 +536,7 @@ Work demo-first: every week ends with something visibly better on screen.
 |---|---|---|
 | 1–3 | Oct 7–27 | ✅ COP map, sync matrix and retask console are built. Remaining: weather adapter → fog probability, MX serviceability model v1, WebSocket push, audit log persistence (see 9.0). |
 | 4 | Oct 28–Nov 3 | ✅ COA generator (3 intents). Remaining: custom commander's-intent sliders, Pareto sweep. "Why not?" panel. Readiness board with freshness badges. |
-| 5 | Nov 4–10 | Copilot (local LLM, tool-calling). HADR scenario (relief airlift to flood/earthquake districts). Auto-resupply missions. |
+| 5 | Nov 4–10 | Copilot (local LLM, tool-calling). ✅ HADR flood relief done; add an earthquake variant (damaged runways, mountain helipads). Auto-resupply missions. |
 | 6 | Nov 11–17 | DDIL demo: 2 nodes (HQ + base) with NATS leaf node. Cut the link, keep planning locally, reconnect and merge. RBAC roles. |
 | 7 | Nov 18–24 | Scale: LNS retask at 150+ missions. Terrain masking (stretch). Robust objective (p05). Performance tuning. |
 | 8 | Nov 25–Dec 1 | **Feature freeze.** Rehearse the demo 10×. Failure drills (no Wi-Fi, solver timeout, laptop swap). Video. Final deck. |
@@ -566,7 +596,10 @@ Steps marked ▶ work in the current build (`./run.sh`). The others need the 9.0
    delivers 68%, and one Su-30 carries 17 points of it." *Propose ground spares*: about 25 idle aircraft held as spares,
    **zero** flying changes, and the bad day improves (the panel shows both distributions). Approve, then **What if?** on
    that aircraft: "ground spare HLW-SU30-03 steps in for HLW-SU30-02".
-9. **(6:30) Same engine, HADR.** Flood-relief airlift scenario *(sprint)*. Close on the numbers slide (§8).
+9. ▶ **(6:30) Same engine, flood relief.** Scenario ▾ → *Flood relief (HADR)*. The map moves to Assam and Bihar,
+   and the tile reads *Relief lifted*. Inject → *Embankment breach*: a P10 rescue is fitted in with a handful of
+   helicopter changes. "Same engine, no new code paths: runway-aware, Indian airspace only, around the thunderstorms."
+   Close on the numbers slide (§8).
 
 ---
 

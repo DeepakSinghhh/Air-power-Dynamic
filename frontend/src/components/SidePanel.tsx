@@ -120,8 +120,17 @@ function PlanSummary({ view }: { view: View }) {
           <dt>Solver</dt><dd>{plan?.solver} · {plan?.status.toLowerCase()} in {plan?.solve_seconds.toFixed(1)} s</dd>
           <dt>Decision time</dt><dd>{fmtTime(world.now)} (missions launched earlier are frozen)</dd>
           <dt>Fleet</dt><dd>{Object.values(world.aircraft).filter((a) => a.serviceable).length}/{Object.keys(world.aircraft).length} serviceable · {Object.keys(world.crews).length} crews</dd>
-          <dt>Threats</dt><dd>{Object.keys(world.threats).length} known SAM sites</dd>
-          <dt>Intent</dt><dd>{world.intent.name}</dd>
+          {world.scenario === 'hadr' ? (
+            <>
+              <dt>Scenario</dt><dd>Flood relief (HADR) · domestic airspace only</dd>
+              <dt>Weather</dt><dd>{Object.keys(world.zones).length} thunderstorm cells to avoid · {Object.values(world.bases).filter((b) => b.closures.length).length} airfields with rain closures</dd>
+            </>
+          ) : (
+            <>
+              <dt>Threats</dt><dd>{Object.keys(world.threats).length} known SAM sites</dd>
+              <dt>Intent</dt><dd>{world.intent.name}</dd>
+            </>
+          )}
         </dl>
         <p className="muted" style={{ fontSize: 12, marginTop: 10 }}>
           Select a mission, base, threat or aircraft on the map, list or timeline. Use <b>Inject event</b> to test the plan.
@@ -175,8 +184,13 @@ function MissionCard({ view, m }: { view: View; m: Mission }) {
         <dt>Planned TOT</dt><dd>{a ? fmtTime(a.tot) : '-'}</dd>
         <dt>Requirement</dt>
         <dd>{m.role === 'AIRLIFT' ? `${m.cargo_t} t cargo` : `${m.package} aircraft`}{m.weapon ? ` · ${m.weapons_per_aircraft}x ${m.weapon} each` : ''}</dd>
-        <dt>On station</dt><dd>{fmtDur(m.on_station_min)}</dd>
-        <dt>Risk ceiling</dt><dd>{fmtPct(m.max_risk)}</dd>
+        <dt>{m.role === 'AIRLIFT' ? 'On ground' : 'On station'}</dt><dd>{fmtDur(m.on_station_min)}</dd>
+        {m.runway_m !== null && (
+          <>
+            <dt>Landing</dt><dd>{m.runway_m === 0 ? 'no runway: helicopters only' : `${m.runway_m.toLocaleString()} m runway`}</dd>
+          </>
+        )}
+        {view.world.scenario !== 'hadr' && (<><dt>Risk ceiling</dt><dd>{fmtPct(m.max_risk)}</dd></>)}
         <dt>Objective</dt><dd>{m.lat.toFixed(2)}N {m.lon.toFixed(2)}E</dd>
         {m.depends_on && (
           <>

@@ -32,9 +32,14 @@ TYPES: dict[str, AircraftType] = {t.name: t for t in [
     AircraftType(name="AEWC", roles=[R.AEW], speed_kmh=650, combat_radius_km=900,
                  prep_min=45, turnaround_min=120),
     AircraftType(name="HEAVYLIFT", roles=[R.AIRLIFT], speed_kmh=750, combat_radius_km=4000,
-                 prep_min=60, turnaround_min=180, payload_t=60),
+                 prep_min=60, turnaround_min=180, payload_t=60, min_runway_m=2000),
     AircraftType(name="MEDLIFT", roles=[R.AIRLIFT], speed_kmh=600, combat_radius_km=2000,
-                 prep_min=45, turnaround_min=120, payload_t=18),
+                 prep_min=45, turnaround_min=120, payload_t=18, min_runway_m=1100),
+    # Helicopters (HADR): land or winch anywhere, short legs.
+    AircraftType(name="HELO-M", roles=[R.AIRLIFT], speed_kmh=220, combat_radius_km=300,
+                 prep_min=20, turnaround_min=45, payload_t=4),
+    AircraftType(name="HELO-L", roles=[R.AIRLIFT], speed_kmh=240, combat_radius_km=220,
+                 prep_min=15, turnaround_min=40, payload_t=1.2),
 ]}
 
 # (id, name, lat, lon, {type: count}, {weapon: stock}, alert reserve)

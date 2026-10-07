@@ -1,5 +1,5 @@
 // End-to-end smoke test: load, plan, COAs, robustness + ground spares, fog forecast -> closures -> approve, presets,
-// drop a SAM, playback.
+// drop a SAM, playback, flood-relief (HADR) scenario.
 // Needs the engine serving the built UI:  (cd engine && uvicorn sarthi.api:app)  then  npm run e2e
 //   APP_URL   default http://127.0.0.1:8000/
 //   SHOTS     directory for screenshots (default e2e/shots)
@@ -162,6 +162,34 @@ await page.waitForTimeout(2500)
 await page.click('text=❚❚ Pause')
 step(`airborne: ${await page.locator('.view-clock').textContent()}`)
 await shot('09-playback')
+
+// Same engine, flood relief: switch scenario, a breach -> rescue proposal -> approve, then a thunderstorm cell.
+await page.click('.btn:has-text("Scenario")')
+await page.click('.seg button:has-text("Flood relief")')
+await page.click('text=Generate & plan')
+await page.waitForFunction(() => document.querySelector('.tile')?.parentElement?.textContent?.includes('Relief lifted'), null, { timeout: 180000 })
+await idle()
+step(`HADR plan: ${(await page.locator('.tile').allTextContents()).map((t) => t.replace(/\s+/g, ' ')).join(' | ')}`)
+if (await page.locator('.intent-chip').count()) throw new Error('COA chip shown in HADR')
+await shot('10-hadr-plan')
+await page.click('text=Inject event')
+await page.waitForSelector('.menu-item:has-text("Embankment breach")', { timeout: 60000 })
+await page.click('.menu-item:has-text("Embankment breach")')
+await page.waitForSelector('.proposal-head', { timeout: 180000 })
+await idle()
+step(`breach proposal: ${(await page.locator('.proposal-head .stat').first().textContent())?.trim()}`)
+await shot('11-hadr-breach')
+await approve()
+await page.click('text=Inject event')
+await page.click('.menu-item:has-text("Draw a thunderstorm cell")')
+const mbox = await page.locator('.map-wrap').boundingBox()
+await page.mouse.move(mbox.x + mbox.width * 0.6, mbox.y + mbox.height * 0.5)
+await page.mouse.click(mbox.x + mbox.width * 0.6, mbox.y + mbox.height * 0.5)
+await page.waitForSelector('.proposal-head', { timeout: 180000 })
+await idle()
+step(`CB proposal: ${(await page.locator('.proposal-head h2').textContent())?.trim()}`)
+await page.click('text=Reject')
+await page.waitForSelector('.proposal-head', { state: 'detached', timeout: 60000 })
 }
 
 try {

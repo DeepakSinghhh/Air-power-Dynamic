@@ -26,6 +26,7 @@ export interface AircraftType {
   payload_t: number
   aar_receivers: number
   fighter: boolean
+  min_runway_m: number
 }
 
 export interface Aircraft {
@@ -80,6 +81,7 @@ export interface Mission {
   dep_lag_min: number
   dep_lag_max: number
   suppresses: string[]
+  runway_m: number | null
   label: string
 }
 
@@ -109,7 +111,11 @@ export interface World {
   fatigue_threshold: number
   intent: Intent
   spare_policy: boolean
+  scenario: ScenarioKind
+  domestic_only: boolean
 }
+
+export type ScenarioKind = 'conflict' | 'hadr'
 
 export interface Sortie {
   tail: string
@@ -149,6 +155,8 @@ export interface Kpis {
   spares: number
   sorties: number
   tanker_sorties: number
+  cargo_planned_t: number
+  cargo_total_t: number
   mean_sortie_risk: number
   max_sortie_risk: number
   solve_seconds: number
@@ -209,6 +217,7 @@ export type EngineEvent =
   | { kind: 'cancel_mission'; at: number; mission: string }
   | { kind: 'priority_change'; at: number; mission: string; priority: number }
   | { kind: 'stock_loss'; at: number; base: string; weapon: string; qty: number }
+  | { kind: 'new_zone'; at: number; zone: RestrictedZone }
 
 export interface Preset { id: string; label: string; detail: string; events: EngineEvent[] }
 

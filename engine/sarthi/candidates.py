@@ -121,7 +121,7 @@ def build(world: World, fields: dict[frozenset, RiskField] | None = None) -> Can
             reach = t.combat_radius_km
             needs_aar = route.km > reach
             if route.km > reach * world.aar_extension or (needs_aar and m.role in (Role.AAR, Role.AIRLIFT)):
-                rej["out of range (even with AAR)"] += 1
+                rej["out of range" if m.role in (Role.AAR, Role.AIRLIFT) else "out of range (even with AAR)"] += 1
                 continue
             ceiling = world.risk_ceiling(m)
             if route.risk > ceiling:
