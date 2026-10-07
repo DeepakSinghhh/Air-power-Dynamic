@@ -28,7 +28,7 @@ interface Store {
   viewTime: number
   playing: boolean
   speed: number // simulated minutes per real second
-  timelineMode: 'missions' | 'aircraft'
+  timelineMode: 'missions' | 'aircraft' | 'readiness'
   hideIdle: boolean
   layers: Layers
   tool: Tool
@@ -55,7 +55,7 @@ interface Store {
   setViewTime: (t: number) => void
   setPlaying: (p: boolean) => void
   setSpeed: (s: number) => void
-  setTimelineMode: (m: 'missions' | 'aircraft') => void
+  setTimelineMode: (m: 'missions' | 'aircraft' | 'readiness') => void
   setHideIdle: (v: boolean) => void
   toggleLayer: (k: keyof Layers) => void
   setTool: (t: Tool) => void

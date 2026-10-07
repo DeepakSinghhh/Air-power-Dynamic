@@ -95,3 +95,20 @@ def test_robustness_spares_proposal_and_policy_persists():
     assert nxt["kpis"]["spares"] > 0  # spares survive later retasks
     assert client.get("/api/robustness?runs=200").json()["hardened"] is None
     assert client.post("/api/robustness/propose").status_code == 409
+
+
+def test_readiness_board_and_feed_freshness():
+    _planned()
+    r = client.get("/api/readiness?at=0").json()
+    assert r["bases"] and len(r["hours"]) == 24
+    hlw = next(b for b in r["bases"] if b["base"] == "HLW")
+    assert all(0 <= v <= hlw["crews_available"] for v in hlw["crews_fit_hourly"])
+    assert all(w["left"] == w["stock"] - w["planned"] for w in hlw["weapons"])
+    feeds = {f["id"]: f for f in r["feeds"]}
+    assert feeds["maintenance"]["as_of"] < 0
+    # An aircraft going unserviceable refreshes the maintenance feed (seen in the proposal's world).
+    tail = next(iter(client.get("/api/state").json()["world"]["aircraft"]))
+    client.post("/api/retask/propose", json={"events": [{"kind": "aircraft_down", "at": 60, "tails": [tail]}],
+                                             "time_limit": 3})
+    p = client.get("/api/readiness?proposal=true").json()
+    assert {f["id"]: f for f in p["feeds"]}["maintenance"]["as_of"] == 60

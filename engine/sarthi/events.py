@@ -152,10 +152,17 @@ Event = Annotated[Union[BaseClosure, AircraftDown, CrewDown, NewThreat, NewMissi
                   Field(discriminator="kind")]
 
 
+FEED_OF = {"base_closure": "airfields", "aircraft_down": "maintenance", "crew_down": "crews", "new_threat": "intel",
+           "new_mission": "tasking", "cancel_mission": "tasking", "priority_change": "tasking",
+           "risk_acceptance": "tasking", "window_change": "tasking", "stock_loss": "armament",
+           "resupply": "armament", "new_zone": "airspace"}
+
+
 def apply_events(world: World, events: list) -> tuple[World, list[str]]:
     w = world.model_copy(deep=True)
     notes = []
     for e in sorted(events, key=lambda e: e.at):
         w.now = max(w.now, e.at)
         notes.append(e.apply(w))
+        w.feeds[FEED_OF[e.kind]] = max(w.feeds.get(FEED_OF[e.kind], -10**6), e.at)
     return w, notes

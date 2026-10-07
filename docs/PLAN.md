@@ -131,8 +131,10 @@ plans and retasking options in seconds, for a commander to approve.
    conflicts and alert-reserve floor.
 3. **Retask console.** Event feed → proposed diff (ADDED / DROPPED / MODIFIED with reasons) →
    "a naive re-plan would change N" → **Approve / Modify / Reject**. Includes a COA comparison (3 options).
-4. **Readiness board.** Predicted serviceable aircraft per base per hour, a crew-fitness heatmap,
-   weapon stocks with burn-down, and a freshness badge on every data source.
+4. **Readiness board** (built: the *Readiness* tab of the timeline). Per base: aircraft serviceable and tasked by
+   type, mean P(serviceable), ground spares, alert reserve, crews fit now and an hour-by-hour crew-fitness strip for
+   the next 24 h, weapons left after the plan (low stocks flagged), closures. A freshness badge on every data feed
+   (maintenance, crews, armament, threat picture, airfields, airspace, tasking): events move each feed's timestamp.
 5. **Copilot panel.** Natural-language questions answered by calling the engine, for example *"What breaks if Halwara
    fogs in at 0500?"* or *"Why isn't STK-06 planned?"*. The LLM never decides.
 
@@ -454,10 +456,11 @@ Run everything with `./run.sh`, then open http://127.0.0.1:8000. It works offlin
 | Robustness | 2,000 simulated executions (no replanning): distribution current vs with ground spares, p05/p50/p95, what fails most and why, single points of failure with **What if?** → retask proposal; **Propose ground spares** → approve; spares drawn as dashed bars in the aircraft view |
 | Flood relief (HADR) | Scenario ▾ → Flood relief: monsoon flood day in Assam and Bihar; *Relief lifted* tile; thunderstorm cells (and a map tool to draw one); breach / rain / cell / helicopters U/S / convoy presets |
 | Courses of action | Intent chip in the top bar → three COAs solved in parallel (~6 s): losses-vs-fulfilment scatter, one computed trade sentence per COA, table (fulfilment, expected value, losses, worst sortie risk, sorties, guided weapons, fighters on the ground, p05 robustness) → **Adopt** = a normal proposal |
+| Readiness board | Timeline tab: per-base serviceability, tasking, spares, alert reserve, crews fit now and per hour (24 h), weapons left after the plan, closures; freshness badges per data feed (● fresh ▲ stale ✕ old) |
 | What would it take? | On an unplanned mission's card: single relaxations (risk, priority, window, resupply) re-solved in parallel; each with its cost and a **Propose** button |
 | Detail cards | Mission (package, crews, "why not planned", raise priority, cancel), base (readiness, stocks, close it), threat (intel age, routes in reach), aircraft (P(serviceable), sorties, ground it) |
 
-**Engine (`engine/`, Python + OR-Tools CP-SAT, 29 passing tests):**
+**Engine (`engine/`, Python + OR-Tools CP-SAT, 30 passing tests):**
 
 | Module | Status |
 |---|---|
@@ -472,6 +475,7 @@ Run everything with `./run.sh`, then open http://127.0.0.1:8000. It works offlin
 | `retask.py`, `events.py`, `presets.py` | Events (closure, aircraft/crew down, pop-up threat, new/cancelled mission, priority change, stock loss) → retask → diff |
 | `explain.py` | "Why not?" explanations |
 | `whatif.py` | "What would it take?" counterfactuals: single relaxations re-solved in parallel (6.7) |
+| `readiness.py` | Readiness board data and data-feed freshness (`World.feeds`, moved by events) |
 | `kpi.py` | KPIs, COA trade-off metrics |
 | `robust.py` | Mission success model (serviceability with spares, tankers, SEAD → strike, ingress risk), Monte Carlo execution, single points of failure, ground spares (6.8) |
 | `coa.py` | Three courses of action from commander's intent, solved in parallel as least-disruptive retasks (6.9) |

@@ -147,6 +147,7 @@ class World(BaseModel):
     spare_policy: bool = False   # hold idle aircraft as ground spares in every plan and retask
     scenario: str = "conflict"   # "conflict" | "hadr" (humanitarian assistance & disaster relief)
     domestic_only: bool = False  # routes must stay inside India's boundary (no foreign overflight)
+    feeds: dict[str, int] = Field(default_factory=dict)  # data feed -> minute of its last update
 
     def deferred(self, m: "Mission") -> bool:
         """Offensive missions the current intent defers (never planned while it stands)."""

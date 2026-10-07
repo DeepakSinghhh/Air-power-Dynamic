@@ -169,6 +169,12 @@ await shot('07-dropped-sam-hazard')
 await page.click('text=Reject')
 await page.waitForSelector('.proposal-head', { state: 'detached', timeout: 60000 })
 
+// Readiness board: per-base serviceability, crews fit hour by hour, weapons left, feed freshness.
+await page.click('.seg button:has-text("Readiness")')
+await page.waitForSelector('.ready-table tbody tr', { timeout: 30000 })
+step(`readiness: ${await page.locator('.ready-table tbody tr').count()} bases, feeds: ${(await page.locator('.feed b').allTextContents()).join(', ')}`)
+await shot('07b-readiness')
+
 // Base card with fog chart (select a base from its timeline group header).
 await page.click('.chip:has-text("Threat surface")')
 await page.click('.seg button:has-text("Aircraft")')

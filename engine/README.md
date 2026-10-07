@@ -11,7 +11,7 @@ python -m sarthi.demo                 # plan a 24 h day, then fog / pop-up SAM /
 python -m sarthi.benchmark --seeds 20 # optimiser vs greedy manual-planner baseline
 python -m sarthi.benchmark --coa      # the three courses of action, side by side
 python -m sarthi.benchmark --hadr     # flood-relief scenario: optimiser vs greedy, incl. relief tonnage
-python -m pytest -q                   # 29 tests, incl. constraint validation, API flow, fog model, COAs, spares, HADR
+python -m pytest -q                   # 30 tests, incl. constraint validation, API flow, fog model, COAs, spares, HADR
 uvicorn sarthi.api:app --reload       # REST API under /api (docs at /docs); serves the UI if built
 ```
 
@@ -28,6 +28,7 @@ uvicorn sarthi.api:app --reload       # REST API under /api (docs at /docs); ser
 | `events.py`, `retask.py` | Operational events, retask, plan diff |
 | `explain.py` | "Why wasn't this mission planned?" |
 | `whatif.py` | "What would it take?": single relaxations re-solved in parallel, each with its cost |
+| `readiness.py` | Readiness board: per-base aircraft, crews fit per hour, weapons left, closures; data-feed freshness |
 | `kpi.py` | KPIs, COA trade-off metrics |
 | `robust.py` | Mission success model, Monte Carlo execution, single points of failure, ground spares |
 | `coa.py` | Courses of action: the same situation planned under three commander's intents, in parallel |
@@ -51,6 +52,7 @@ curl -X POST localhost:8000/api/retask/<id>/approve           # or /reject
 curl -X POST 'localhost:8000/api/coa?time_limit=6'             # three COAs for the current situation
 curl -X POST localhost:8000/api/coa/risk/propose               # adopt one as a proposal, then approve it
 curl -X POST localhost:8000/api/whatif/STK-06                  # what would get an unplanned mission planned?
+curl 'localhost:8000/api/readiness?at=360'                     # readiness board at 06:00 + data-feed freshness
 curl 'localhost:8000/api/robustness?runs=2000'                 # Monte Carlo: current plan vs with ground spares
 curl -X POST localhost:8000/api/robustness/propose             # hold ground spares (a proposal, then approve)
 ```

@@ -4,6 +4,7 @@ import { useStore, useView, type View } from '../store'
 import { C, FAMILY_COLOR, roleColor } from '../theme'
 import type { Aircraft, Assignment, Mission, Plan, Sortie } from '../types'
 import { baseStatus, fmtPct, fmtTime, missionOrder, sortieKey } from '../util'
+import Readiness from './Readiness'
 
 const LABEL_W = 210
 const AXIS_H = 34
@@ -417,6 +418,7 @@ export default function Timeline() {
         <div className="seg" role="group" aria-label="Timeline view">
           <button aria-pressed={mode === 'missions'} onClick={() => setMode('missions')}>Missions</button>
           <button aria-pressed={mode === 'aircraft'} onClick={() => setMode('aircraft')}>Aircraft</button>
+          <button aria-pressed={mode === 'readiness'} onClick={() => setMode('readiness')}>Readiness</button>
         </div>
         {mode === 'aircraft' && (
           <label>
@@ -438,15 +440,19 @@ export default function Timeline() {
         <span className="muted" style={{ fontSize: 12 }}>
           {mode === 'missions'
             ? '▭ TOT window · bar: ingress | on station | egress · ◆ TOT · ⤳ SEAD before strike'
-            : 'bar: start-up | transit | on station | return · hatched: turnaround · dashed: ground spare · red hatch: base closed · blue cells: P(fog)'}
+            : mode === 'aircraft'
+              ? 'bar: start-up | transit | on station | return · hatched: turnaround · dashed: ground spare · red hatch: base closed · blue cells: P(fog)'
+              : `readiness at view time ${fmtTime(Math.max(world.now, viewTime))} · scrub the time with Play or Jump to now · ● fresh ▲ stale ✕ old feed`}
         </span>
-        <div className="seg" role="group" aria-label="Zoom">
+        {mode !== 'readiness' && <div className="seg" role="group" aria-label="Zoom">
           <button onClick={() => setZoom(Math.max(1, zoom / 1.5))}>−</button>
           <button aria-pressed={zoom === 1} onClick={() => setZoom(1)}>Fit</button>
           <button onClick={() => setZoom(Math.min(8, zoom * 1.5))}>+</button>
-        </div>
+        </div>}
       </div>
-      <div className="tl-scroll dim-when-busy" ref={scrollRef} onPointerLeave={() => setTip(null)}>
+      {mode === 'readiness' && <Readiness />}
+      <div className="tl-scroll dim-when-busy" ref={scrollRef} onPointerLeave={() => setTip(null)}
+        style={mode === 'readiness' ? { display: 'none' } : undefined}>
         <div className="tl-canvas" style={{ gridTemplateColumns: `${LABEL_W}px ${contentW}px`, gridTemplateRows: `${AXIS_H}px ${offsets.total}px` }}>
           <div className="tl-corner">{mode === 'missions' ? `${rows.length} missions` : 'Aircraft by base'}</div>
           <svg className="tl-axis" width={contentW} height={AXIS_H} onPointerDown={scrub} role="slider"

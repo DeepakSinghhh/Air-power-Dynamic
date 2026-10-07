@@ -63,6 +63,9 @@ BLUE_FWD_BOX = (29.0, 33.0, 74.6, 76.2)   # own-side forward area for CAP statio
 CAS_BOX = (29.5, 32.8, 73.4, 75.2)        # troops in contact: inside India, near the boundary
 RED_STANDOFF_KM = 30.0
 
+# When each feed last updated before D-day 00:00 (notional; events move them forward).
+NOTIONAL_FEEDS = {"maintenance": -50, "crews": -95, "armament": -230, "airfields": -30, "airspace": -400, "tasking": -120}
+
 THREAT_KINDS = {  # kind: (radius_km, pk, relocation km/h)
     "SAM-LR": (110.0, 0.55, 0.0),
     "SAM-MR": (45.0, 0.45, 6.0),
@@ -191,7 +194,7 @@ def generate(seed: int = 7, n_strike: int = 10, n_dca: int = 5, n_cas: int = 4, 
     zones = {"CIV-1": RestrictedZone(id="CIV-1", lat=28.56, lon=77.10, radius_km=25,
                                      reason="Civil terminal area (FUA)")}
     return World(bases=bases, types=dict(TYPES), aircraft=aircraft, crews=crews,
-                 threats=threats, zones=zones, missions=missions)
+                 threats=threats, zones=zones, missions=missions, feeds=dict(NOTIONAL_FEEDS))
 
 
 def _threat(rng: random.Random, tid: str, kind: str) -> Threat:

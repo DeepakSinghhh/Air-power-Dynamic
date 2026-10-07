@@ -82,6 +82,14 @@ saves a failure screenshot).
   HADR presets add a breach rescue, rain at the busiest airfield, a cell on a route, helicopters U/S and a cancelled
   road convoy. Mission cards show the landing constraint (runway length, or helicopters only).
 
+**Readiness board** (timeline tab *Readiness*): one row per base, at the view time. It shows:
+- aircraft serviceable and tasked by type, mean P(serviceable), ground spares and the alert reserve;
+- crews fit now, plus a 24-hour strip of crews fit per hour (fatigue model and night currency);
+- weapons left after the plan (▲ when low) and closures.
+
+Above the table, a badge for each data feed says how old it is (● fresh, ▲ stale, ✕ old). Events refresh the feed
+they come from; for example, a maintenance alert refreshes *Maintenance status*. Click a row to open the base card.
+
 **What would it take?** On an unplanned mission's card, *Find what gets … planned* tries single relaxations in
 parallel: accept more route risk, raise to P10, widen the TOT window, resupply weapons. Each comes back with its
 cost (aircraft changed, missions dropped, fulfilment before/after) and a **Propose** button.
@@ -106,6 +114,7 @@ ground an aircraft, raise priority, cancel mission) that go through the same pro
 | `src/components/MissionList.tsx` | Missions by priority |
 | `src/components/Weather.tsx` | Fog forecast panel and the reusable P(fog) chart |
 | `src/components/CoaPanel.tsx` | Courses-of-action comparison (scatter, trade sentences, table, adopt) |
+| `src/components/Readiness.tsx` | Readiness board and data-feed freshness |
 | `src/components/RobustPanel.tsx` | Robustness: outcome distribution, fragile missions, single points of failure, ground spares |
 | `e2e/smoke.mjs` | Browser end-to-end test with screenshots |
 | `e2e/demo.mjs` | Captioned demo walkthrough recorded to video |

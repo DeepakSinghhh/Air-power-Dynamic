@@ -356,3 +356,28 @@ export interface WhatIfOutcome {
 }
 
 export interface WhatIfResponse { mission: string; version: number; seconds: number; outcomes: WhatIfOutcome[] }
+
+// ---------- readiness board ----------
+
+export interface ReadinessType { type: string; total: number; serviceable: number; tasked: number; p_mean: number }
+export interface ReadinessWeapon { weapon: string; stock: number; planned: number; left: number }
+
+export interface ReadinessBase {
+  base: string
+  name: string
+  types: ReadinessType[]
+  spares: number
+  fighters: number
+  reserve: number
+  crews_available: number
+  crews_total: number
+  crews_night: number
+  crews_fit_now: number
+  crews_fit_hourly: number[]
+  weapons: ReadinessWeapon[]
+  closures: TimeWindow[]
+}
+
+export interface Feed { id: string; label: string; as_of: number; age_min: number }
+
+export interface ReadinessResponse { at: number; hours: number[]; threshold: number; bases: ReadinessBase[]; feeds: Feed[] }

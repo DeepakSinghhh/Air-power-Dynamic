@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import candidates, coa, greedy, met, optimizer, robust, whatif
+from .readiness import readiness
 from .events import Event
 from .kpi import kpis, stress_test
 from .models import Plan, World
@@ -191,6 +192,18 @@ def what_would_it_take(mission: str, time_limit: float = 3.0) -> dict:
         out = whatif.what_would_it_take(world, plan, mission, time_limit)
         return {"mission": mission, "version": STATE["version"], "seconds": round(time.perf_counter() - t0, 1),
                 "outcomes": out}
+
+
+@api.get("/readiness")
+def get_readiness(at: int | None = None, proposal: bool = False) -> dict:
+    """Per-base readiness at `at` (default now) and data-feed freshness; proposal=true uses the pending proposal."""
+    with LOCK:
+        prop = STATE["proposal"]
+        if proposal and prop:
+            world, plan = prop["result"].world, prop["result"].plan
+        else:
+            world, plan = _ensure_world(), STATE["plan"]
+        return readiness(world, plan, world.now if at is None else at)
 
 
 @api.get("/presets")

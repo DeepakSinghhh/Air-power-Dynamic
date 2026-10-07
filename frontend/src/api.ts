@@ -1,4 +1,4 @@
-import type { AppState, CoaResponse, EngineEvent, Hazard, MetResponse, MetSource, Preset, Proposal, RobustnessResponse, ScenarioKind, WhatIfResponse } from './types'
+import type { AppState, CoaResponse, EngineEvent, Hazard, MetResponse, MetSource, Preset, Proposal, ReadinessResponse, RobustnessResponse, ScenarioKind, WhatIfResponse } from './types'
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -33,6 +33,7 @@ export const api = {
   coaPropose: (id: string) => call<Proposal>(`/coa/${id}/propose`, { method: 'POST' }),
   whatIf: (mission: string, timeLimit = 3) =>
     call<WhatIfResponse>(`/whatif/${encodeURIComponent(mission)}?time_limit=${timeLimit}`, { method: 'POST' }),
+  readiness: (at: number, proposal: boolean) => call<ReadinessResponse>(`/readiness?at=${Math.round(at)}${proposal ? '&proposal=true' : ''}`),
   robustness: (runs = 2000) => call<RobustnessResponse>(`/robustness?runs=${runs}`),
   sparesPropose: () => call<Proposal>('/robustness/propose', { method: 'POST' }),
   approve: (id: string) => call<AppState>(`/retask/${id}/approve`, { method: 'POST' }),

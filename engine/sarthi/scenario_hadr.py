@@ -13,7 +13,7 @@ import random
 
 from .geo import haversine_km, in_india, ring_offsets
 from .models import Aircraft, Base, Crew, Mission, RestrictedZone, Role, Window, World
-from .scenario import TYPES
+from .scenario import NOTIONAL_FEEDS, TYPES
 
 # (id, name, lat, lon, {type: count})
 BASES = [
@@ -144,4 +144,4 @@ def generate_hadr(seed: int = 7) -> World:
                 break
 
     return World(bases=bases, types=dict(TYPES), aircraft=aircraft, crews=crews, threats={}, zones=zones,
-                 missions=missions, area=AREA, scenario="hadr", domestic_only=True)
+                 missions=missions, area=AREA, scenario="hadr", domestic_only=True, feeds=dict(NOTIONAL_FEEDS))
