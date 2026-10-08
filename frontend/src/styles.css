@@ -372,3 +372,30 @@ table.mini tr.clickable:hover td { background: var(--surface-2); }
 .crew-strip-wrap { display: flex; gap: 8px; align-items: center; white-space: nowrap; }
 .crew-strip { display: grid; grid-template-columns: repeat(24, 7px); gap: 1px; }
 .crew-strip i { display: block; height: 14px; border-radius: 1px; }
+
+/* ---------- left panel tabs + copilot ---------- */
+.panel-tabs { display: flex; border-bottom: 1px solid var(--hairline); }
+.panel-tabs button { flex: 1; background: none; border: 0; border-bottom: 2px solid transparent; padding: 9px 6px 7px; color: var(--muted);
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer; }
+.panel-tabs button[aria-selected='true'] { color: var(--ink); border-bottom-color: var(--accent); }
+.copilot { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.cp-log { flex: 1; min-height: 0; overflow: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }
+.cp-intro { font-size: 12px; color: var(--ink-2); line-height: 1.4; }
+.cp-status { font-size: 11px; margin-top: 4px; }
+.cp-msg { font-size: 12.5px; line-height: 1.45; border-radius: 8px; padding: 7px 9px; max-width: 100%; overflow-wrap: anywhere; }
+.cp-user { align-self: flex-end; background: #26313d; color: var(--ink); max-width: 88%; }
+.cp-bot { background: var(--surface-2); color: var(--ink-2); }
+.cp-bot b { color: var(--ink); }
+.cp-bot p { margin: 0 0 4px; }
+.cp-bot ul { margin: 2px 0 4px; padding-left: 16px; }
+.cp-bot li { margin: 2px 0; }
+.cp-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.cp-actions .btn { font-size: 11px; }
+.cp-meta { margin-top: 5px; font-size: 10.5px; color: var(--muted); }
+.cp-note { align-self: center; font-size: 11px; color: var(--muted); }
+.cp-suggest { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
+.cp-suggest .btn { text-align: left; font-size: 12px; white-space: normal; }
+.cp-input { display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--hairline); }
+.cp-input input { flex: 1; min-width: 0; background: var(--surface-2); color: var(--ink); border: 1px solid var(--hairline);
+  border-radius: 6px; padding: 6px 8px; font-size: 12.5px; }
+.cp-input input:focus { outline: 1px solid var(--accent); }

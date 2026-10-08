@@ -77,7 +77,7 @@ async function card(kicker, title, lines, ms) {
 }
 
 const approve = async () => {
-  await page.click('text=Approve & issue changes')
+  await page.click('.proposal-head button:has-text("Approve")')
   await page.waitForSelector('.proposal-head', { state: 'detached', timeout: 60000 })
   await idle()
 }
@@ -106,6 +106,7 @@ await page.keyboard.press('Escape')
 // 2. Why not?
 const unplanned = page.locator('.mrow:has-text("not planned")').first()
 if (await unplanned.count()) {
+  const unId = ((await unplanned.locator('.id').textContent()) ?? 'STK-06').trim()
   await unplanned.click()
   await caption('Every unplanned mission says why', 'e.g. least-risk route above the acceptable risk; a SEAD package would open options')
   await wait(5000)
@@ -117,6 +118,24 @@ if (await unplanned.count()) {
     'The machine shows the price; the commander decides whether to pay it')
   await wait(6500)
   await page.keyboard.press('Escape')
+
+  // 2b. The copilot: the same questions in plain language, answered only from the engine.
+  await page.keyboard.press('/')
+  await page.waitForSelector('.cp-input input')
+  await caption('Or just ask the copilot', 'It answers only from the engine; the model, if any, only picks the tool')
+  const askCp = async (q, ms) => {
+    const n = await page.locator('.cp-bot').count()
+    await page.fill('.cp-input input', q)
+    await wait(600)
+    await page.press('.cp-input input', 'Enter')
+    await page.waitForFunction((k) => document.querySelectorAll('.cp-bot').length > k, n, { timeout: 180000 })
+    await idle()
+    await wait(ms)
+  }
+  await askCp(`why isn't ${unId} planned?`, 3500)
+  await caption('A follow-up in plain words', 'Every answer names the engine tools behind it')
+  await askCp('can we squeeze it in?', 5500)
+  await page.click('.panel-tabs button:has-text("Missions")')
 }
 
 // 4. Pop-up SAM.
@@ -134,7 +153,7 @@ await caption('Routes bend around the new threat (old routes dashed); the threat
   `${await statText()}`)
 await wait(6500)
 await page.click('.chip:has-text("Threat surface")')
-await page.click('text=Reject')
+await page.click('.proposal-head button:has-text("Reject")')
 await page.waitForSelector('.proposal-head', { state: 'detached', timeout: 60000 })
 await idle()
 

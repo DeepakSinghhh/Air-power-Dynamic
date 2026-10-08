@@ -20,7 +20,8 @@ Demo video (backup for the live demo): with the server running, `npm run demo-vi
 walkthrough of docs/PLAN.md section 11 to `e2e/video/demo.mp4` (Playwright + ffmpeg; everything solves live).
 
 Checks: `npm run typecheck`, `npm run build`, and with the server running `npm run e2e`
-(Playwright: plan → what would it take → propose → reject → COA compare → adopt Min risk → approve → intent persists → robustness → ground spares → approve →
+(Playwright: plan → what would it take → propose → reject → copilot (starter question, what-if → proposal → reject) →
+COA compare → adopt Min risk → approve → intent persists → robustness → ground spares → approve →
 what-if aircraft lost → reject → fog forecast → propose closures →
 approve → no duplicate closures → threshold change → time-sensitive target → drop SAM + threat surface → base fog
 card → playback → flood-relief scenario → breach rescue → approve → thunderstorm cell; fails on any console error and
@@ -82,6 +83,13 @@ saves a failure screenshot).
   HADR presets add a breach rescue, rain at the busiest airfield, a cell on a route, helicopters U/S and a cancelled
   road convoy. Mission cards show the landing constraint (runway length, or helicopters only).
 
+**Copilot** (left panel tab, or press `/`): ask in plain language, for example *why isn't STK-06 planned?*, *can we
+squeeze it in?*, *what if Halwara fogs in between 0500 and 0930?*, *how robust is the plan?* or *readiness at Jodhpur*.
+- **How it answers:** only from the engine. Each answer shows how it was routed (parser, or the local model if one is
+  configured) and which engine tools produced it, plus follow-up buttons (ask, show on map, open a panel, propose).
+- **Changes to the plan:** what-if questions come back as a normal proposal for approval on the right. The copilot
+  won't stack a second proposal on a pending one.
+
 **Readiness board** (timeline tab *Readiness*): one row per base, at the view time. It shows:
 - aircraft serviceable and tasked by type, mean P(serviceable), ground spares and the alert reserve;
 - crews fit now, plus a 24-hour strip of crews fit per hour (fatigue model and night currency);
@@ -114,6 +122,7 @@ ground an aircraft, raise priority, cancel mission) that go through the same pro
 | `src/components/MissionList.tsx` | Missions by priority |
 | `src/components/Weather.tsx` | Fog forecast panel and the reusable P(fog) chart |
 | `src/components/CoaPanel.tsx` | Courses-of-action comparison (scatter, trade sentences, table, adopt) |
+| `src/components/Copilot.tsx` | Copilot chat: grounded answers, router and tool labels, follow-up actions |
 | `src/components/Readiness.tsx` | Readiness board and data-feed freshness |
 | `src/components/RobustPanel.tsx` | Robustness: outcome distribution, fragile missions, single points of failure, ground spares |
 | `e2e/smoke.mjs` | Browser end-to-end test with screenshots |

@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { create } from 'zustand'
 
 import { api } from './api'
-import type { AppState, CoaResponse, EngineEvent, Hazard, MetResponse, MetSource, Preset, Proposal, RobustnessResponse, ScenarioKind, Selection, WhatIfResponse } from './types'
+import type { AppState, CoaResponse, CopilotMessage, CopilotStatus, EngineEvent, Hazard, MetResponse, MetSource, Preset, Proposal, RobustnessResponse, ScenarioKind, Selection, WhatIfResponse } from './types'
 
 export interface Layers {
   hazard: boolean
@@ -70,6 +70,12 @@ interface Store {
   whatIfLost: (tail: string) => Promise<void>
   whatIf: WhatIfResponse | null
   loadWhatIf: (mission: string) => Promise<void>
+  leftTab: 'missions' | 'copilot'
+  setLeftTab: (t: 'missions' | 'copilot') => void
+  chat: CopilotMessage[]
+  copilotStatus: CopilotStatus | null
+  askCopilot: (text: string) => Promise<void>
+  loadCopilotStatus: () => Promise<void>
 }
 
 const PLAN_SECONDS = 10
@@ -123,6 +129,9 @@ export const useStore = create<Store>((set, get) => {
     robust: null,
     robustOpen: false,
     whatIf: null,
+    leftTab: 'missions',
+    chat: [],
+    copilotStatus: null,
 
     init: async () => {
       await run('Loading operational picture', async () => {
@@ -139,7 +148,8 @@ export const useStore = create<Store>((set, get) => {
     newScenario: async (seed, kind = 'conflict') => {
       await run(`Generating ${kind === 'hadr' ? 'flood-relief' : ''} scenario ${seed}`.replace('  ', ' '), async () => {
         const fresh = await api.scenario(seed, kind)
-        set({ app: fresh, proposal: null, selection: null, viewTime: fresh.world.now, hazard: null, met: null, coas: null, robust: null })
+        set((s) => ({ app: fresh, proposal: null, selection: null, viewTime: fresh.world.now, hazard: null, met: null, coas: null, robust: null,
+          chat: s.chat.length ? [...s.chat, { role: 'note' as const, text: `New ${kind === 'hadr' ? 'flood-relief' : 'western front'} scenario, seed ${seed}` }] : s.chat }))
         set({ busy: { label: 'Optimising air tasking plan', since: performance.now() } })
         commit(await api.plan(PLAN_SECONDS))
       })
@@ -212,6 +222,29 @@ export const useStore = create<Store>((set, get) => {
     },
 
     setRobustOpen: (robustOpen) => set({ robustOpen }),
+
+    setLeftTab: (leftTab) => set({ leftTab }),
+
+    loadCopilotStatus: async () => {
+      try {
+        set({ copilotStatus: await api.copilotStatus() })
+      } catch {
+        /* the copilot still works without status */
+      }
+    },
+
+    askCopilot: async (text) => {
+      const q = text.trim()
+      if (!q) return
+      set((s) => ({ chat: [...s.chat, { role: 'user', text: q }], leftTab: 'copilot' }))
+      const r = await run(`Copilot: ${q.length > 36 ? `${q.slice(0, 36)}…` : q}`, () => api.copilot(q))
+      if (!r) {
+        set((s) => ({ chat: [...s.chat, { role: 'note', text: 'No answer (see the error message).' }] }))
+        return
+      }
+      set((s) => ({ chat: [...s.chat, { role: 'copilot', reply: r }] }))
+      if (r.proposal) set({ proposal: r.proposal, proposalLabel: r.proposal_label ?? 'Copilot proposal' })
+    },
 
     loadWhatIf: async (mission) => {
       set({ whatIf: null })

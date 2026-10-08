@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useStore, useView } from '../store'
 import { roleColor } from '../theme'
 import { fmtPct, fmtTime, maxRisk } from '../util'
+import Copilot from './Copilot'
 
 type Filter = 'all' | 'planned' | 'unplanned'
 
@@ -12,6 +13,8 @@ export default function MissionList() {
   const select = useStore((s) => s.select)
   const setHoverMission = useStore((s) => s.setHoverMission)
   const [filter, setFilter] = useState<Filter>('all')
+  const tab = useStore((s) => s.leftTab)
+  const setTab = useStore((s) => s.setLeftTab)
   const { world, plan, proposal } = view
   const change = new Map(proposal?.diff.changes.map((c) => [c.mission, c.change]) ?? [])
 
@@ -21,9 +24,15 @@ export default function MissionList() {
   const nPlanned = Object.keys(plan?.assignments ?? {}).length
 
   return (
-    <aside className="panel dim-when-busy" aria-label="Missions">
+    <aside className="panel" aria-label={tab === 'copilot' ? 'Copilot' : 'Missions'}>
+      <div className="panel-tabs" role="tablist">
+        <button role="tab" aria-selected={tab === 'missions'} onClick={() => setTab('missions')}>Missions</button>
+        <button role="tab" aria-selected={tab === 'copilot'} onClick={() => setTab('copilot')} title="Ask the copilot (press /)">
+          Copilot
+        </button>
+      </div>
+      {tab === 'copilot' ? <Copilot /> : <>
       <div className="panel-head">
-        <h3>Missions</h3>
         <div className="seg" role="group" aria-label="Filter missions">
           <button aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>All {Object.keys(world.missions).length}</button>
           <button aria-pressed={filter === 'planned'} onClick={() => setFilter('planned')}>Planned {nPlanned}</button>
@@ -32,7 +41,7 @@ export default function MissionList() {
           </button>
         </div>
       </div>
-      <div className="panel-body">
+      <div className="panel-body dim-when-busy">
         {missions.map((m) => {
           const a = plan?.assignments[m.id]
           const sel = selection?.kind === 'mission' && selection.id === m.id
@@ -70,6 +79,7 @@ export default function MissionList() {
         })}
         {missions.length === 0 && <div className="empty">No missions in this filter.</div>}
       </div>
+      </>}
     </aside>
   )
 }

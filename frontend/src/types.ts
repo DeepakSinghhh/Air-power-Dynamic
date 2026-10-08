@@ -381,3 +381,33 @@ export interface ReadinessBase {
 export interface Feed { id: string; label: string; as_of: number; age_min: number }
 
 export interface ReadinessResponse { at: number; hours: number[]; threshold: number; bases: ReadinessBase[]; feeds: Feed[] }
+
+// ---------- copilot ----------
+
+export interface CopilotAction {
+  label: string
+  kind: 'ask' | 'select' | 'open' | 'propose'
+  text?: string | null
+  mission?: string | null
+  base?: string | null
+  panel?: 'coas' | 'robustness' | 'readiness' | null
+  events?: EngineEvent[] | null
+}
+
+export interface CopilotReply {
+  text: string
+  intent: string | null
+  router: string
+  tools: string[]
+  actions: CopilotAction[]
+  proposal: Proposal | null
+  proposal_label: string | null
+  seconds: number
+}
+
+export interface CopilotStatus { llm: string | null; reachable: boolean | null; tools: Record<string, string> }
+
+export type CopilotMessage =
+  | { role: 'user'; text: string }
+  | { role: 'copilot'; reply: CopilotReply }
+  | { role: 'note'; text: string }

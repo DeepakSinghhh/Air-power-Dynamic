@@ -27,6 +27,10 @@ export default function App() {
       if (e.key === 'Escape') {
         s.setTool(null)
         s.select(null)
+      } else if (e.key === '/') {
+        e.preventDefault()
+        s.setLeftTab('copilot')
+        setTimeout(() => document.querySelector<HTMLInputElement>('.cp-input input')?.focus(), 0)
       } else if (e.key === ' ' && !(t instanceof HTMLButtonElement)) {
         e.preventDefault()
         s.setPlaying(!s.playing)

@@ -9,7 +9,7 @@ retasking options in seconds, for a human commander to approve.
 - **Plan & roadmap:** [`docs/PLAN.md`](docs/PLAN.md)
 - **Core engine:** [`engine/`](engine/) (CP-SAT allocation, threat-aware routing, minimal-disruption retasking)
 - **UI:** [`frontend/`](frontend/) (offline COP map + synchronisation matrix + human-in-the-loop retask review +
-  fog forecast + courses of action + robustness + flood-relief scenario)
+  fog forecast + courses of action + robustness + readiness board + flood-relief scenario + copilot)
 - **Idea deck:** [`docs/VAYU-SARTHI_SIH2026_idea.pptx`](docs/VAYU-SARTHI_SIH2026_idea.pptx) (rebuild with
   `python -I tools/build_deck.py` after `npm run e2e`; PDF preview alongside)
 - **Demo video (backup):** [`docs/media/VAYU-SARTHI_demo.mp4`](docs/media/VAYU-SARTHI_demo.mp4), a captioned 3-minute

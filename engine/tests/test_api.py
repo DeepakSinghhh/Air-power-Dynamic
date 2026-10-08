@@ -112,3 +112,18 @@ def test_readiness_board_and_feed_freshness():
                                              "time_limit": 3})
     p = client.get("/api/readiness?proposal=true").json()
     assert {f["id"]: f for f in p["feeds"]}["maintenance"]["as_of"] == 60
+
+
+def test_copilot_answers_proposes_and_logs():
+    s = _planned()
+    st = client.get("/api/copilot/status").json()
+    assert "why_not" in st["tools"]
+    r = client.post("/api/copilot", json={"text": "status"}).json()
+    assert r["intent"] == "status" and r["router"] == "rules" and "missions planned" in r["text"]
+    base = next(iter(s["world"]["bases"].values()))["name"]
+    r = client.post("/api/copilot", json={"text": f"what if {base} fogs in from 05:00 to 09:30"}).json()
+    assert r["intent"] == "close_base" and r["proposal"] and "Proposal ready" in r["text"]
+    assert client.get("/api/state").json()["version"] == s["version"]  # nothing changes until approved
+    client.post(f"/api/retask/{r['proposal']['id']}/reject")
+    log = client.get("/api/copilot/log").json()
+    assert [e["intent"] for e in log[-2:]] == ["status", "close_base"] and log[-1]["proposal"]

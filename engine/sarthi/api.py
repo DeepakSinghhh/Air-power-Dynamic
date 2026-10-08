@@ -18,7 +18,7 @@ from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import candidates, coa, greedy, met, optimizer, robust, whatif
+from . import candidates, coa, copilot, greedy, met, optimizer, robust, whatif
 from .readiness import readiness
 from .events import Event
 from .kpi import kpis, stress_test
@@ -34,7 +34,9 @@ api = APIRouter(prefix="/api")
 LOCK = threading.Lock()
 STATE: dict = {"world": None, "plan": None, "baseline_kpis": None, "reference_label": "vs manual-style plan",
                "version": 0, "history": [],
-               "proposal": None, "met_live": None, "coas": None, "hardened": None}
+               "proposal": None, "met_live": None, "coas": None, "hardened": None,
+               "copilot_log": [], "copilot_ctx": {}}
+LLM = copilot.LLMRouter.from_env()  # optional local model (SARTHI_LLM_URL); the copilot works without it
 LIVE_MET_TTL_S = 1800
 
 
@@ -46,6 +48,10 @@ class ScenarioReq(BaseModel):
 class ProposeReq(BaseModel):
     events: list[Event]
     time_limit: float = 10.0
+
+
+class AskReq(BaseModel):
+    text: str
 
 
 def envelopes(world: World) -> dict:
@@ -101,7 +107,14 @@ def make_plan(time_limit: float = 10.0) -> dict:
         plan = optimizer.solve(world, cands, hint=base, time_limit=time_limit)
         STATE.update(plan=plan, baseline_kpis=kpis(world, base), reference_label="vs manual-style plan",
                      proposal=None, version=STATE["version"] + 1)
+        _warm_llm(world, plan)
         return snapshot()
+
+
+def _warm_llm(world: World, plan: Plan) -> None:
+    """Prime a local model's prompt cache in the background, so the first real question is not the slow one."""
+    if LLM is not None:
+        threading.Thread(target=LLM.route, args=("status", world, plan), daemon=True).start()
 
 
 @api.get("/hazard")
@@ -147,17 +160,21 @@ def met_forecast(source: str = "snapshot", threshold: float = 0.5, at: int | Non
             "events": met.closure_events(world, windows, at)}
 
 
+def _coas(time_limit: float) -> dict:
+    world, plan = _need_plan()
+    t0 = time.perf_counter()
+    results = coa.compare(world, plan, time_limit)
+    STATE["coas"] = {"version": STATE["version"], "items": {c.id: (w, c) for w, c in results}}
+    return {"version": STATE["version"], "now": world.now, "current_intent": world.intent,
+            "seconds": round(time.perf_counter() - t0, 1),
+            "coas": [c.model_dump(exclude={"plan"}) for _, c in results]}
+
+
 @api.post("/coa")
 def compare_coas(time_limit: float = 6.0) -> dict:
     """Plan the current situation under each commander's intent (solved in parallel)."""
     with LOCK:
-        world, plan = _need_plan()
-        t0 = time.perf_counter()
-        results = coa.compare(world, plan, time_limit)
-        STATE["coas"] = {"version": STATE["version"], "items": {c.id: (w, c) for w, c in results}}
-        return {"version": STATE["version"], "now": world.now, "current_intent": world.intent,
-                "seconds": round(time.perf_counter() - t0, 1),
-                "coas": [c.model_dump(exclude={"plan"}) for _, c in results]}
+        return _coas(time_limit)
 
 
 @api.post("/coa/{coa_id}/propose")
@@ -213,16 +230,20 @@ def get_presets(at: int = 0) -> list:
         return presets(world, plan, at)
 
 
+def _propose(events: list, time_limit: float = 10.0) -> dict:
+    world, plan = _need_plan()
+    res: RetaskResult = retask(world, plan, events, time_limit, compare_naive=True)
+    pid = uuid.uuid4().hex[:8]
+    STATE["proposal"] = {"id": pid, "version": STATE["version"], "result": res}
+    return {"id": pid, "notes": res.notes, "diff": res.diff, "naive_diff": res.naive_diff,
+            "world": res.world, "plan": res.plan, "kpis": kpis(res.world, res.plan),
+            "envelopes": envelopes(res.world)}
+
+
 @api.post("/retask/propose")
 def propose(req: ProposeReq) -> dict:
     with LOCK:
-        world, plan = _need_plan()
-        res: RetaskResult = retask(world, plan, req.events, req.time_limit, compare_naive=True)
-        pid = uuid.uuid4().hex[:8]
-        STATE["proposal"] = {"id": pid, "version": STATE["version"], "result": res}
-        return {"id": pid, "notes": res.notes, "diff": res.diff, "naive_diff": res.naive_diff,
-                "world": res.world, "plan": res.plan, "kpis": kpis(res.world, res.plan),
-                "envelopes": envelopes(res.world)}
+        return _propose(req.events, req.time_limit)
 
 
 @api.post("/retask/{pid}/approve")
@@ -264,44 +285,108 @@ def stress(runs: int = 2000) -> dict:
         return stress_test(world, plan, runs)
 
 
+def _robustness(runs: int) -> dict:
+    world, plan = _need_plan()
+    out = {"version": STATE["version"], "now": world.now, "spare_policy": world.spare_policy,
+           "current": stress_test(world, plan, runs), "hardened": None}
+    if not world.spare_policy:
+        w = world.model_copy(deep=True)
+        w.spare_policy = True
+        hp = robust.add_spares(w, plan, candidates.build(w))
+        STATE["hardened"] = {"version": STATE["version"], "world": w, "plan": hp}
+        out["hardened"] = stress_test(w, hp, runs)
+    return out
+
+
 @api.get("/robustness")
 def robustness(runs: int = 2000) -> dict:
     """Monte Carlo execution of the committed plan and, if spares are not yet held, of the same plan
     with ground spares (nothing else changed)."""
     with LOCK:
-        world, plan = _need_plan()
-        out = {"version": STATE["version"], "now": world.now, "spare_policy": world.spare_policy,
-               "current": stress_test(world, plan, runs), "hardened": None}
-        if not world.spare_policy:
-            w = world.model_copy(deep=True)
-            w.spare_policy = True
-            hp = robust.add_spares(w, plan, candidates.build(w))
-            STATE["hardened"] = {"version": STATE["version"], "world": w, "plan": hp}
-            out["hardened"] = stress_test(w, hp, runs)
-        return out
+        return _robustness(runs)
+
+
+def _propose_spares(compute: bool = False) -> dict:
+    world, plan = _need_plan()
+    h = STATE["hardened"]
+    if compute and (not h or h["version"] != STATE["version"]):
+        _robustness(500)
+        h = STATE["hardened"]
+    if not h:
+        raise HTTPException(404, "Run the robustness check first")
+    if h["version"] != STATE["version"]:
+        raise HTTPException(409, "Plan changed since the robustness check; run it again")
+    w, hp = h["world"], h["plan"]
+    n = sum(len(a.spares) for a in hp.assignments.values())
+    k = sum(1 for a in hp.assignments.values() if a.spares)
+    notes = [f"Hold {n} idle aircraft as ground spares for {k} missions. No mission, flying aircraft, crew "
+             f"or TOT changes. Spares are loaded and booked for the sortie, and stay assigned through later "
+             f"retasks."]
+    res = RetaskResult(world=w, plan=hp, diff=diff_plans(w, plan, hp), notes=notes)
+    pid = uuid.uuid4().hex[:8]
+    STATE["proposal"] = {"id": pid, "version": STATE["version"], "result": res}
+    return {"id": pid, "notes": notes, "diff": res.diff, "naive_diff": None, "world": w, "plan": hp,
+            "kpis": kpis(w, hp), "envelopes": envelopes(w)}
 
 
 @api.post("/robustness/propose")
 def propose_spares() -> dict:
     """Hold idle aircraft as ground spares: a proposal like any retask, approved by a human."""
     with LOCK:
+        return _propose_spares()
+
+
+# ---------- copilot ----------
+
+class _Services:
+    """What the copilot may do: read, simulate, and create proposals (a human approves or rejects them)."""
+    def propose(self, events: list, label: str) -> dict:
+        return _propose(events)
+
+    def propose_spares(self) -> dict:
+        return _propose_spares(compute=True)
+
+    def robustness(self) -> dict:
+        return _robustness(2000)
+
+    def coas(self) -> dict:
+        return _coas(6.0)
+
+    def pending(self) -> bool:
+        return STATE["proposal"] is not None
+
+
+@api.get("/copilot/status")
+def copilot_status() -> dict:
+    """Which router answers: the deterministic parser always; a local model only if one is configured."""
+    info = {"llm": LLM.describe() if LLM else None, "reachable": None, "tools": copilot.TOOLS}
+    if LLM:
+        try:
+            info["reachable"] = LLM.ping()
+        except OSError:
+            info["reachable"] = False
+    return info
+
+
+@api.post("/copilot")
+def ask_copilot(req: AskReq) -> dict:
+    with LOCK:
         world, plan = _need_plan()
-        h = STATE["hardened"]
-        if not h:
-            raise HTTPException(404, "Run the robustness check first")
-        if h["version"] != STATE["version"]:
-            raise HTTPException(409, "Plan changed since the robustness check; run it again")
-        w, hp = h["world"], h["plan"]
-        n = sum(len(a.spares) for a in hp.assignments.values())
-        k = sum(1 for a in hp.assignments.values() if a.spares)
-        notes = [f"Hold {n} idle aircraft as ground spares for {k} missions. No mission, flying aircraft, crew "
-                 f"or TOT changes. Spares are loaded and booked for the sortie, and stay assigned through later "
-                 f"retasks."]
-        res = RetaskResult(world=w, plan=hp, diff=diff_plans(w, plan, hp), notes=notes)
-        pid = uuid.uuid4().hex[:8]
-        STATE["proposal"] = {"id": pid, "version": STATE["version"], "result": res}
-        return {"id": pid, "notes": notes, "diff": res.diff, "naive_diff": None, "world": w, "plan": hp,
-                "kpis": kpis(w, hp), "envelopes": envelopes(w)}
+        t0 = time.perf_counter()
+        r = copilot.answer(req.text[:500], world, plan, _Services(), STATE["copilot_ctx"], LLM)
+        STATE["copilot_log"].append({"wall": time.strftime("%Y-%m-%d %H:%M:%S"), "now": world.now,
+                                     "text": req.text[:500], "router": r.router, "intent": r.intent,
+                                     "tools": r.tools, "proposal": r.proposal["id"] if r.proposal else None,
+                                     "seconds": round(time.perf_counter() - t0, 2)})
+        out = r.model_dump()
+        out["seconds"] = round(time.perf_counter() - t0, 2)
+        return out
+
+
+@api.get("/copilot/log")
+def copilot_log() -> list:
+    """Audit trail: every question, how it was routed, which engine tools ran, any proposal it created."""
+    return STATE["copilot_log"]
 
 
 app.include_router(api)

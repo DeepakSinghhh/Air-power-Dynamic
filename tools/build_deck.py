@@ -48,7 +48,7 @@ R = {
     "hadr_fulfil": ("85.1%", "96.3%"),
     "hadr_t": ("81.6%", "94.5%"),
     "coa_loss": ("5.81", "3.01"),
-    "tests": "30",
+    "tests": "51",
 }
 
 
@@ -234,7 +234,7 @@ def slide_solution(prs):
     bullets(s, 0.5, 5.73, 6.9, 1.15, [
         "A minimal-disruption diff, not a fresh plan · one integrated optimiser, not seven silos",
         "Why not, and what it would take, for every unplanned mission · intel-age-aware routing · COAs",
-        "Air-gapped and indigenous · the same engine plans flood relief (HADR)",
+        "A copilot that answers only from the engine; air-gapped and indigenous; same engine plans flood relief",
     ], size=11.5, gap=3)
     pic = picture(s, SHOTS / "04-fog-proposal.png", 7.75, 1.4, w=5.05)
     if pic is not None:
@@ -274,13 +274,15 @@ def slide_technical(prs):
         ("Service", "FastAPI (REST); one process serves API and UI; runs offline on one laptop"),
         ("User interface", "React 19 + TypeScript · deck.gl map with an offline basemap (India's official boundary) · Zustand"),
         ("Prediction", "Logistic MOS on Open-Meteo NWP, labelled with IEM METAR; held-out winter validation"),
+        ("Copilot", "Parser + optional local LLM (Ollama / llama.cpp) that only picks engine tools; "
+                    "answers are engine templates"),
         ("Assurance", f"{R['tests']} engine tests · independent constraint validator · Playwright browser end-to-end test"),
     ]
-    y = 3.85
+    y = 3.82
     for k, v in rows:
-        text(s, 0.5, y, 1.6, 0.5, k, size=11.5, color=INK, bold=True)
-        text(s, 2.1, y, 4.6, 0.6, v, size=11.5, color=INK2, spacing=1.05)
-        y += 0.6
+        text(s, 0.5, y, 1.6, 0.5, k, size=11, color=INK, bold=True)
+        text(s, 2.1, y, 4.6, 0.6, v, size=11, color=INK2, spacing=1.05)
+        y += 0.53
 
     section(s, 7.0, 3.55, 5.8, "Key methods")
     bullets(s, 7.0, 3.85, 5.85, 3.2, [
@@ -376,7 +378,7 @@ def slide_impact(prs):
          size=12, color=INK2)
     shots = [("02d-robustness.png", (0.15, 0.07, 0.15, 0.03), "Robustness: 2,000 simulated days, with and without spares"),
              ("11-hadr-breach.png", (0, 0, 0, 0), "Flood relief: a breach becomes a P10 rescue"),
-             ("05-fog-proposal-aircraft-view.png", (0, 0.55, 0.42, 0), "Aircraft lanes: closures, turnarounds, changes")]
+             ("02f-copilot.png", (0, 0.09, 0.45, 0.48), "Copilot: answers only from the engine")]
     for i, (f, crop, cap) in enumerate(shots):
         x = 0.5 + i * 4.18
         pic = picture(s, SHOTS / f, x, 4.9, w=3.98, crop=crop)
@@ -414,7 +416,7 @@ def slide_references(prs):
         "Airfield and district headquarters coordinates (public)",
         "",
         "This submission",
-        "Working prototype: engine, map, synchronisation matrix, retask review, why-not and what-it-would-take, fog forecast, COAs, robustness, HADR",
+        "Working prototype: engine, map, synchronisation matrix, retask review, why-not and what-it-would-take, fog forecast, COAs, robustness, readiness, HADR, copilot",
         "Design and roadmap: docs/PLAN.md · all scenario data notional",
     ]
 

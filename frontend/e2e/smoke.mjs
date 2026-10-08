@@ -30,7 +30,7 @@ const shot = async (name) => {
 }
 const step = (msg) => console.log(`- ${msg}`)
 const approve = async () => {
-  await page.click('text=Approve & issue changes')
+  await page.click('.proposal-head button:has-text("Approve")')
   await page.waitForSelector('.proposal-head', { state: 'detached', timeout: 60000 })
   await idle()
 }
@@ -66,12 +66,38 @@ if (await unplanned.count()) {
     await page.waitForSelector('.proposal-head', { timeout: 120000 })
     await idle()
     step(`what-if proposal: ${(await page.locator('.proposal-head h2').textContent())?.trim()}`)
-    await page.click('text=Reject')
+    await page.click('.proposal-head button:has-text("Reject")')
     await page.waitForSelector('.proposal-head', { state: 'detached', timeout: 60000 })
     await idle()
   }
   await page.keyboard.press('Escape')
 }
+
+// Copilot: "/" opens it; a starter question, a follow-up, and a what-if that becomes a proposal (rejected).
+await page.keyboard.press('/')
+await page.waitForSelector('.cp-input input', { timeout: 10000 })
+const askCopilot = async (q) => {
+  const n = await page.locator('.cp-bot').count()
+  await page.fill('.cp-input input', q)
+  await page.press('.cp-input input', 'Enter')
+  await page.waitForFunction((k) => document.querySelectorAll('.cp-bot').length > k, n, { timeout: 180000 })
+  await idle()
+  const last = page.locator('.cp-bot').last()
+  return { text: (await last.textContent()) ?? '', meta: (await last.locator('.cp-meta').textContent()) ?? '' }
+}
+await page.locator('.cp-suggest .btn').first().click()
+await page.waitForSelector('.cp-bot', { timeout: 60000 })
+await idle()
+step(`copilot: ${(await page.locator('.cp-bot').last().locator('.cp-meta').textContent())?.trim()}`)
+const wif = await askCopilot('what if Halwara closes from 05:00 to 09:30')
+step(`copilot what-if: ${wif.meta.trim()}`)
+if (!wif.text.includes('Proposal ready')) throw new Error('copilot did not create a proposal')
+await page.waitForSelector('.proposal-head', { timeout: 60000 })
+await shot('02f-copilot')
+await page.click('.proposal-head button:has-text("Reject")')
+await page.waitForSelector('.proposal-head', { state: 'detached', timeout: 60000 })
+await idle()
+await page.click('.panel-tabs button:has-text("Missions")')
 
 // Courses of action: compare three intents, adopt Min risk, approve; the intent then persists.
 await page.click('.intent-chip')
@@ -114,7 +140,7 @@ await idle()
 const whatIf = (await page.locator('.change li').allTextContents()).join(' | ')
 step(`what-if: ${(await page.locator('.proposal-head h2').textContent())?.trim()} -> ${whatIf.slice(0, 160)}`)
 await shot('02e-what-if-spare-steps-in')
-await page.click('text=Reject')
+await page.click('.proposal-head button:has-text("Reject")')
 await page.waitForSelector('.proposal-head', { state: 'detached', timeout: 60000 })
 await idle()
 
@@ -166,7 +192,7 @@ await idle()
 await page.click('.chip:has-text("Threat surface")')
 await page.waitForTimeout(1500)
 await shot('07-dropped-sam-hazard')
-await page.click('text=Reject')
+await page.click('.proposal-head button:has-text("Reject")')
 await page.waitForSelector('.proposal-head', { state: 'detached', timeout: 60000 })
 
 // Readiness board: per-base serviceability, crews fit hour by hour, weapons left, feed freshness.
@@ -217,7 +243,7 @@ await page.mouse.click(mbox.x + mbox.width * 0.6, mbox.y + mbox.height * 0.5)
 await page.waitForSelector('.proposal-head', { timeout: 180000 })
 await idle()
 step(`CB proposal: ${(await page.locator('.proposal-head h2').textContent())?.trim()}`)
-await page.click('text=Reject')
+await page.click('.proposal-head button:has-text("Reject")')
 await page.waitForSelector('.proposal-head', { state: 'detached', timeout: 60000 })
 }
 

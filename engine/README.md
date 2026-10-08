@@ -11,7 +11,8 @@ python -m sarthi.demo                 # plan a 24 h day, then fog / pop-up SAM /
 python -m sarthi.benchmark --seeds 20 # optimiser vs greedy manual-planner baseline
 python -m sarthi.benchmark --coa      # the three courses of action, side by side
 python -m sarthi.benchmark --hadr     # flood-relief scenario: optimiser vs greedy, incl. relief tonnage
-python -m pytest -q                   # 30 tests, incl. constraint validation, API flow, fog model, COAs, spares, HADR
+python -m sarthi.copilot_eval         # copilot routing accuracy (add --url/--model/--api for a local model)
+python -m pytest -q                   # 51 tests, incl. constraint validation, API flow, fog model, COAs, spares, HADR
 uvicorn sarthi.api:app --reload       # REST API under /api (docs at /docs); serves the UI if built
 ```
 
@@ -29,6 +30,7 @@ uvicorn sarthi.api:app --reload       # REST API under /api (docs at /docs); ser
 | `explain.py` | "Why wasn't this mission planned?" |
 | `whatif.py` | "What would it take?": single relaxations re-solved in parallel, each with its cost |
 | `readiness.py` | Readiness board: per-base aircraft, crews fit per hour, weapons left, closures; data-feed freshness |
+| `copilot.py` | Copilot: deterministic parser + optional local LLM router → engine tools → templated answers |
 | `kpi.py` | KPIs, COA trade-off metrics |
 | `robust.py` | Mission success model, Monte Carlo execution, single points of failure, ground spares |
 | `coa.py` | Courses of action: the same situation planned under three commander's intents, in parallel |
@@ -53,6 +55,8 @@ curl -X POST 'localhost:8000/api/coa?time_limit=6'             # three COAs for 
 curl -X POST localhost:8000/api/coa/risk/propose               # adopt one as a proposal, then approve it
 curl -X POST localhost:8000/api/whatif/STK-06                  # what would get an unplanned mission planned?
 curl 'localhost:8000/api/readiness?at=360'                     # readiness board at 06:00 + data-feed freshness
+curl -X POST localhost:8000/api/copilot -H 'content-type: application/json' -d '{"text":"why is STK-06 not planned?"}'
+curl localhost:8000/api/copilot/log                            # audit trail of every copilot question
 curl 'localhost:8000/api/robustness?runs=2000'                 # Monte Carlo: current plan vs with ground spares
 curl -X POST localhost:8000/api/robustness/propose             # hold ground spares (a proposal, then approve)
 ```
@@ -82,6 +86,22 @@ flood. `World.domestic_only` masks the routing grid to India's boundary, so flig
 overfly neighbouring countries. Thunderstorm cells are restricted zones, and a `new_zone` event adds one. HADR presets:
 embankment breach (new P10 rescue), heavy rain at the busiest airfield, a thunderstorm cell on a route, helicopters
 unserviceable, a road convoy cancelled.
+
+Copilot: `POST /api/copilot {"text": ...}` answers from the engine only. A deterministic parser routes most questions
+with no model. An optional local open-weight model routes the rest to ONE of 18 tools, under a JSON schema whose enums
+are the scenario's real IDs. The parser's IDs and times override the model's. The answer is always a template filled
+by the engine. Proposals go through approve/reject, and every question is logged. To add a local model (optional):
+
+```bash
+# Ollama (easiest on Windows/macOS/Linux):  ollama pull qwen2.5:3b
+SARTHI_LLM_URL=http://127.0.0.1:11434 SARTHI_LLM_MODEL=qwen2.5:3b uvicorn sarthi.api:app
+# or any OpenAI-compatible server, e.g. llama.cpp:  llama-server -m qwen2.5-1.5b-instruct-q4_k_m.gguf --port 8080
+SARTHI_LLM_URL=http://127.0.0.1:8080/v1 SARTHI_LLM_API=openai SARTHI_LLM_MODEL=local uvicorn sarthi.api:app
+```
+
+Tested with Qwen2.5-1.5B-Instruct (Q4_K_M, llama.cpp, 4 CPU cores). The model alone routes 18/20 questions at about 5 s
+each; parser first, then model, routes 20/20. The Ollama protocol is unit-tested but has not been run against a live
+Ollama here.
 
 Fog forecasting: `GET /api/met?source=snapshot|live&threshold=0.5` returns per-base hourly P(fog) and
 the closures it implies. Retrain with `python -I tools/build_fog_model.py <cache-dir>`. It labels with IEM METAR

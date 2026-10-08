@@ -135,8 +135,9 @@ plans and retasking options in seconds, for a commander to approve.
    type, mean P(serviceable), ground spares, alert reserve, crews fit now and an hour-by-hour crew-fitness strip for
    the next 24 h, weapons left after the plan (low stocks flagged), closures. A freshness badge on every data feed
    (maintenance, crews, armament, threat picture, airfields, airspace, tasking): events move each feed's timestamp.
-5. **Copilot panel.** Natural-language questions answered by calling the engine, for example *"What breaks if Halwara
-   fogs in at 0500?"* or *"Why isn't STK-06 planned?"*. The LLM never decides.
+5. **Copilot** (built: the *Copilot* tab of the left panel, `/` to open). Natural-language questions answered by
+   calling the engine, for example *"What breaks if Halwara fogs in at 0500?"* or *"Why isn't STK-06 planned?"*.
+   The LLM only routes the question; it never writes a number and never decides (6.11).
 
 ---
 
@@ -414,11 +415,38 @@ helicopter serviceability dominates.
 The greedy baseline picks the aircraft that carry the most of the load first (a human planner would not send light
 helicopters for a 16 t drop), so the gap is not an artefact of a weak baseline.
 
-### 6.11 Copilot (next)
-A local open-weight LLM with tools `get_plan`, `why_not(mission)`, `what_if(events)`,
-`compare_coas`, `brief(mission)`. Optional RAG over *public* doctrine documents for terminology. Guardrails:
-the LLM can only read and propose; every state change goes through the approval workflow; all
-prompts and tool calls are logged.
+### 6.11 Copilot (built: `copilot.py`)
+Questions in plain language, answered only through the engine. There are 18 tools:
+- **read:** status, unplanned, why not, what would it take, brief, aircraft, threat, readiness, fog forecast,
+  robustness, COAs;
+- **propose:** close a base, aircraft U/S, raise priority, cancel, fog closures, ground spares.
+
+**Routing has two layers.**
+1. A deterministic parser places most questions with no model at all, so the copilot works on an air-gapped laptop.
+   It understands mission, base, aircraft and threat IDs, clock times and ranges ("between 0500 and 0930", "for 3
+   hours"), and follow-ups ("can we squeeze *it* in?").
+2. If the parser is unsure, an optional **local open-weight model** picks ONE tool. Ollama or any OpenAI-compatible
+   server works, such as llama.cpp. The model is constrained by a JSON schema whose enums are the real mission, base,
+   aircraft and threat IDs, so it can choose but cannot invent. The parser's IDs and times then override the model's,
+   and an ID the question never mentions is dropped.
+
+**Guardrails.**
+- The model never writes the answer. Every answer is a template over engine output, so every number comes from the
+  engine.
+- Tools only read or create a proposal. Nothing changes until a human approves, and the copilot will not stack a
+  second proposal on a pending one.
+- Every question, its route, the tools run and any proposal go to an audit log (`GET /api/copilot/log`).
+- Each answer shows how it was routed and which engine tools produced it.
+
+| Routing accuracy, 20 paraphrased questions (`python -m sarthi.copilot_eval`) | Correct |
+|---|---|
+| Parser alone (no model) | 14/20 |
+| Local model alone, Qwen2.5-1.5B-Instruct Q4_K_M on 4 CPU cores (~5 s per question) | 18/20 |
+| **Parser first, model for what it cannot place** | **20/20** |
+
+The model is optional. Without it, the copilot answers the questions the parser understands and suggests phrasings
+for the rest. **Next:** an Ollama end-to-end test on the venue laptop (the Ollama protocol is unit-tested, not yet run
+against a live Ollama), and retrieval over *public* doctrine documents for terminology.
 
 ---
 
@@ -457,10 +485,11 @@ Run everything with `./run.sh`, then open http://127.0.0.1:8000. It works offlin
 | Flood relief (HADR) | Scenario ▾ → Flood relief: monsoon flood day in Assam and Bihar; *Relief lifted* tile; thunderstorm cells (and a map tool to draw one); breach / rain / cell / helicopters U/S / convoy presets |
 | Courses of action | Intent chip in the top bar → three COAs solved in parallel (~6 s): losses-vs-fulfilment scatter, one computed trade sentence per COA, table (fulfilment, expected value, losses, worst sortie risk, sorties, guided weapons, fighters on the ground, p05 robustness) → **Adopt** = a normal proposal |
 | Readiness board | Timeline tab: per-base serviceability, tasking, spares, alert reserve, crews fit now and per hour (24 h), weapons left after the plan, closures; freshness badges per data feed (● fresh ▲ stale ✕ old) |
+| Copilot | Left-panel tab (`/`): plain-language questions answered from the engine (why not, what it would take, briefs, readiness, fog, robustness, COAs, what-ifs that become proposals). Each answer shows its router (parser / local model) and engine tools; follow-up buttons |
 | What would it take? | On an unplanned mission's card: single relaxations (risk, priority, window, resupply) re-solved in parallel; each with its cost and a **Propose** button |
 | Detail cards | Mission (package, crews, "why not planned", raise priority, cancel), base (readiness, stocks, close it), threat (intel age, routes in reach), aircraft (P(serviceable), sorties, ground it) |
 
-**Engine (`engine/`, Python + OR-Tools CP-SAT, 30 passing tests):**
+**Engine (`engine/`, Python + OR-Tools CP-SAT, 51 passing tests):**
 
 | Module | Status |
 |---|---|
@@ -476,6 +505,7 @@ Run everything with `./run.sh`, then open http://127.0.0.1:8000. It works offlin
 | `explain.py` | "Why not?" explanations |
 | `whatif.py` | "What would it take?" counterfactuals: single relaxations re-solved in parallel (6.7) |
 | `readiness.py` | Readiness board data and data-feed freshness (`World.feeds`, moved by events) |
+| `copilot.py`, `copilot_eval.py` | Copilot: parser + optional local model (Ollama / OpenAI-compatible) routing to engine tools; templated, grounded answers; routing accuracy eval (6.11) |
 | `kpi.py` | KPIs, COA trade-off metrics |
 | `robust.py` | Mission success model (serviceability with spares, tankers, SEAD → strike, ingress risk), Monte Carlo execution, single points of failure, ground spares (6.8) |
 | `coa.py` | Three courses of action from commander's intent, solved in parallel as least-disruptive retasks (6.9) |
@@ -550,6 +580,7 @@ review and polish.
 | Oct 7 | ✅ **Robustness panel**: one success model for the KPI and the Monte Carlo spread, fragile missions with causes, single points of failure + *what if?*, ground spares from idle aircraft | - |
 | Oct 7 | ✅ **3 COAs** from commander's intent (Max effect / Min risk / Defensive posture), solved in parallel; scatter + trade sentences + table; adopt → approve; the intent persists | - |
 | Oct 7 | ✅ **HADR scenario** (flood relief, Assam and Bihar): runway-aware airlift, helicopter rescue, domestic airspace, thunderstorm cells, presets | - |
+| Oct 8 | ✅ **Copilot**: parser + optional local open-weight model, 18 engine tools, grounded templated answers, proposals only, audit log; 20/20 routing on the eval set | - |
 | Oct 7 | ✅ **Idea deck** (`docs/VAYU-SARTHI_SIH2026_idea.pptx`, built from real screenshots by `tools/build_deck.py`) and **demo video** script (`npm run demo-video`) | - |
 | Oct 14–15 | Deck (§12) with real screenshots and the §8 benchmark tables. Rehearse §11. | Pitch |
 | Oct 16–17 | Record a 3-minute demo video using presets (plus a backup take). | Pitch + Frontend |
@@ -565,7 +596,7 @@ Work demo-first: every week ends with something visibly better on screen.
 |---|---|---|
 | 1–3 | Oct 7–27 | ✅ COP map, sync matrix and retask console are built. Remaining: weather adapter → fog probability, MX serviceability model v1, WebSocket push, audit log persistence (see 9.0). |
 | 4 | Oct 28–Nov 3 | ✅ COA generator (3 intents). Remaining: custom commander's-intent sliders, Pareto sweep. "Why not?" panel. Readiness board with freshness badges. |
-| 5 | Nov 4–10 | Copilot (local LLM, tool-calling). ✅ HADR flood relief done; add an earthquake variant (damaged runways, mountain helipads). Auto-resupply missions. |
+| 5 | Nov 4–10 | ✅ Copilot built; test with Ollama on the venue laptop, doctrine retrieval. ✅ HADR flood relief done; add an earthquake variant (damaged runways, mountain helipads). Auto-resupply missions. |
 | 6 | Nov 11–17 | DDIL demo: 2 nodes (HQ + base) with NATS leaf node. Cut the link, keep planning locally, reconnect and merge. RBAC roles. |
 | 7 | Nov 18–24 | Scale: LNS retask at 150+ missions. Terrain masking (stretch). Robust objective (p05). Performance tuning. |
 | 8 | Nov 25–Dec 1 | **Feature freeze.** Rehearse the demo 10×. Failure drills (no Wi-Fi, solver timeout, laptop swap). Video. Final deck. |
@@ -607,6 +638,7 @@ Steps marked ▶ work in the current build (`./run.sh`). The others need the 9.0
 3. ▶ **(1:45) Why not, and what would it take?** Click an unplanned mission (hollow marker): *"Least-risk route 33% vs
    acceptable 30%; a SEAD package would open options."* Then *Find what gets STK-06 planned*: "accept 40% risk → planned,
    2 aircraft changed, nothing dropped". The machine shows the price; the commander decides whether to pay it.
+   Press `/` and ask the copilot the same in words: *"can we squeeze it in?"*. The answer names the engine tools behind it.
 4. ▶ **(2:30) Fog, predicted.** Open *Weather*. "This is a real night: 3 Feb 2026, from a winter the model
    never saw." Point at Hindan, where Delhi airport's observed fog (white ticks) sits under the forecast bars. "Raw
    model visibility catches about a quarter of fog hours; our model catches 70%." Pick the risk threshold, then
@@ -689,6 +721,10 @@ notional data; it does not engage targets.
   violated. CP-SAT proves feasibility, reports an optimality gap and explains itself. RL needs simulators and data we don't have,
   and is opaque. RL could later learn warm-start heuristics.
 - **Does the AI make decisions?** No. It proposes diffs and COAs with reasons, and a human approves.
+- **Can the chatbot hallucinate a number?** No. The language model only picks which engine tool to run, from a fixed
+  list, with IDs it can only choose from the real ones. The answer text is a template filled by the engine. Every
+  answer shows which tools produced it, and every question is in the audit log. Without a model, the copilot still
+  answers through the parser.
 - **Aren't your COAs just three weightings?** They are three *intents*, each a few interpretable rules
   (risk ceilings × 0.6, a price on expected losses, defer strikes below P7, hold 60% of fighters for air defence).
   The rules are hard constraints the validator checks, not hidden weights. Each COA is re-planned from the current
