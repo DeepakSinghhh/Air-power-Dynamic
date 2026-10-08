@@ -3,6 +3,7 @@ import { create } from 'zustand'
 
 import { api } from './api'
 import type { AppState, CoaResponse, CopilotMessage, CopilotStatus, EngineEvent, Hazard, MetResponse, MetSource, Preset, Proposal, RobustnessResponse, ScenarioKind, Selection, WhatIfResponse } from './types'
+import { SCENARIO_NAME } from './util'
 
 export interface Layers {
   hazard: boolean
@@ -146,10 +147,10 @@ export const useStore = create<Store>((set, get) => {
     },
 
     newScenario: async (seed, kind = 'conflict') => {
-      await run(`Generating ${kind === 'hadr' ? 'flood-relief' : ''} scenario ${seed}`.replace('  ', ' '), async () => {
+      await run(`Generating ${kind === 'conflict' ? '' : SCENARIO_NAME[kind]} scenario ${seed}`.replace('  ', ' '), async () => {
         const fresh = await api.scenario(seed, kind)
         set((s) => ({ app: fresh, proposal: null, selection: null, viewTime: fresh.world.now, hazard: null, met: null, coas: null, robust: null,
-          chat: s.chat.length ? [...s.chat, { role: 'note' as const, text: `New ${kind === 'hadr' ? 'flood-relief' : 'western front'} scenario, seed ${seed}` }] : s.chat }))
+          chat: s.chat.length ? [...s.chat, { role: 'note' as const, text: `New ${SCENARIO_NAME[kind]} scenario, seed ${seed}` }] : s.chat }))
         set({ busy: { label: 'Optimising air tasking plan', since: performance.now() } })
         commit(await api.plan(PLAN_SECONDS))
       })

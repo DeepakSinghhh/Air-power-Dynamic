@@ -18,6 +18,7 @@ from .threats import RiskField, Route
 BRIEF_MIN = 60
 DEBRIEF_MIN = 30
 CREW_REST_MIN = 90
+MAX_AIRLIFT_PACKAGE = 4  # most aircraft sent together on one lift
 TANKER_LEAD_MIN = 90   # tanker on its track this long before the package TOT
 TANKER_TRAIL_MIN = 45
 DEFERRED = "deferred by commander's intent (offensive below P{floor})"
@@ -109,7 +110,17 @@ def build(world: World, fields: dict[frozenset, RiskField] | None = None) -> Can
                 continue
             if m.runway_m is not None and t.min_runway_m > m.runway_m:
                 rej["cannot land at the objective (helicopters only)" if m.runway_m == 0
-                    else f"runway too short ({m.runway_m} m)"] += 1
+                    else f"runway too short ({m.runway_m:,} m usable)"] += 1
+                continue
+            home = world.bases[a.base]
+            if home.runway_m is not None and t.min_runway_m > home.runway_m:
+                rej[f"runway at {home.name} too short to take off ({home.runway_m:,} m usable)"] += 1
+                continue
+            if t.max_landing_m is not None and m.elevation_m > t.max_landing_m:
+                rej[f"landing site too high ({m.elevation_m:,} m)"] += 1
+                continue
+            if m.role == Role.AIRLIFT and t.payload_at(m.elevation_m) < 0.1:
+                rej[f"no useful payload at {m.elevation_m:,} m"] += 1
                 continue
             if m.weapon and t.weapons.get(m.weapon, 0) < m.weapons_per_aircraft:
                 rej[f"cannot carry {m.weapons_per_aircraft}x {m.weapon}"] += 1
@@ -140,7 +151,7 @@ def build(world: World, fields: dict[frozenset, RiskField] | None = None) -> Can
                 continue
             quality = int(round(100 * a.p_serviceable * (1 - route.risk) - route.km / 25))
             pairs.append(PairCand(m.id, a.tail, a.base, a.type, lead, trail, t.turnaround_min, route,
-                                  needs_aar, dom, quality, t.payload_t))
+                                  needs_aar, dom, quality, t.payload_at(m.elevation_m)))
         cands.pairs[m.id] = pairs
 
         # Crews for every (base, type) group that has a candidate aircraft.

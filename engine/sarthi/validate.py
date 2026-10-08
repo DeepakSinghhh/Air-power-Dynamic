@@ -22,9 +22,9 @@ def validate(world: World, plan: Plan, cands: Candidates, frozen: set[str] = fro
         if live and not (m.tot_earliest <= a.tot <= m.tot_latest):
             errs.append(f"{mid}: TOT outside window")
         if m.role == Role.AIRLIFT:
-            lift = sum(world.types[world.aircraft[s.tail].type].payload_t for s in a.sorties)
-            if lift < m.cargo_t:
-                errs.append(f"{mid}: lift {lift}t < cargo {m.cargo_t}t")
+            lift = sum(world.types[world.aircraft[s.tail].type].payload_at(m.elevation_m) for s in a.sorties)
+            if lift < m.cargo_t - 1e-6:
+                errs.append(f"{mid}: lift {lift:.1f}t at {m.elevation_m} m < cargo {m.cargo_t}t")
         elif len(a.sorties) != m.package:
             errs.append(f"{mid}: {len(a.sorties)} aircraft, package needs {m.package}")
         if m.depends_on:
@@ -41,6 +41,13 @@ def validate(world: World, plan: Plan, cands: Candidates, frozen: set[str] = fro
                 errs.append(f"{mid}: {s.tail} lacks role {m.role.value}")
             if live and not ac.serviceable:
                 errs.append(f"{mid}: {s.tail} unserviceable")
+            if live and m.runway_m is not None and t.min_runway_m > m.runway_m:
+                errs.append(f"{mid}: {s.tail} cannot land on {m.runway_m} m")
+            home = world.bases[s.base]
+            if live and home.runway_m is not None and t.min_runway_m > home.runway_m:
+                errs.append(f"{mid}: {s.tail} cannot take off from {home.runway_m} m at {home.name}")
+            if live and t.max_landing_m is not None and m.elevation_m > t.max_landing_m:
+                errs.append(f"{mid}: {s.tail} cannot land at {m.elevation_m} m")
             if live and s.risk > world.risk_ceiling(m) + 1e-6:
                 errs.append(f"{mid}: {s.tail} risk {s.risk:.0%} above ceiling {world.risk_ceiling(m):.0%}")
             if live:

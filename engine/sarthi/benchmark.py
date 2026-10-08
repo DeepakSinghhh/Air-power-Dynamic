@@ -2,6 +2,7 @@
 
     python -m sarthi.benchmark [--seeds 20] [--time-limit 10]
     python -m sarthi.benchmark --coa [--seeds 8]     # the three courses of action, side by side
+    python -m sarthi.benchmark --hadr | --quake [--seeds 20]   # flood / earthquake relief
     python -m sarthi.benchmark --retask [--seeds 8] [--scale 2]   # fog at the busiest base: churn vs naive re-plan
 """
 from __future__ import annotations
@@ -16,6 +17,7 @@ from .retask import retask
 from .kpi import kpis
 from .scenario import generate
 from .scenario_hadr import generate_hadr
+from .scenario_quake import generate_quake
 from .validate import validate
 
 
@@ -26,6 +28,7 @@ def main() -> None:
     ap.add_argument("--strikes", type=int, default=14, help="strike missions per scenario (load)")
     ap.add_argument("--coa", action="store_true", help="compare the courses of action instead")
     ap.add_argument("--hadr", action="store_true", help="flood-relief scenario instead of the conflict one")
+    ap.add_argument("--quake", action="store_true", help="earthquake-relief scenario instead of the conflict one")
     ap.add_argument("--retask", action="store_true", help="retask benchmark: busiest base fogged 05:00-09:30")
     ap.add_argument("--scale", type=int, default=1, help="mission-count multiplier for --retask (1, 2, 3)")
     args = ap.parse_args()
@@ -34,10 +37,12 @@ def main() -> None:
     if args.retask:
         return retask_benchmark(args)
 
+    relief = args.hadr or args.quake
     rows = []
     print(f"{'seed':>4} {'missions':>8} | {'greedy fulfil':>13} {'EV':>5} | {'sarthi fulfil':>13} {'EV':>5} {'t(s)':>6}")
     for seed in range(1, args.seeds + 1):
-        w = generate_hadr(seed) if args.hadr else generate(seed, n_strike=args.strikes)
+        w = (generate_quake(seed) if args.quake else generate_hadr(seed) if args.hadr
+             else generate(seed, n_strike=args.strikes))
         c = candidates.build(w)
         g = greedy.solve(w, c)
         p = optimizer.solve(w, c, hint=g, time_limit=args.time_limit)
@@ -45,7 +50,7 @@ def main() -> None:
         if errs:
             raise SystemExit(f"constraint violation on seed {seed}: {errs[:5]}")
         kg, kp = kpis(w, g), kpis(w, p)
-        if args.hadr:
+        if relief:
             kg["relief_t"], kp["relief_t"] = (sum(w.missions[m].cargo_t for m in x.assignments) /
                                               sum(m.cargo_t for m in w.missions.values()) for x in (g, p))
         rows.append((kg, kp))
@@ -57,7 +62,7 @@ def main() -> None:
         return st.mean(r[side][key] for r in rows)
 
     print("-" * 64)
-    for key in ("priority_weighted_fulfilment", "expected_value", "mean_sortie_risk") + (("relief_t",) if args.hadr else ()):
+    for key in ("priority_weighted_fulfilment", "expected_value", "mean_sortie_risk") + (("relief_t",) if relief else ()):
         g, p = mean(0, key), mean(1, key)
         print(f"{key:<30} greedy {g:6.1%}   sarthi {p:6.1%}   delta {p - g:+.1%}")
     print(f"{'solve_seconds (mean)':<30} greedy {mean(0, 'solve_seconds'):6.3f}   "

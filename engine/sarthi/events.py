@@ -137,6 +137,27 @@ class Resupply(_Event):
         return f"{self.qty}x {self.weapon} delivered to {w.bases[self.base].name}"
 
 
+class RunwayDamage(_Event):
+    """An airfield's usable runway shrinks (earthquake cracks, cratering): it limits take-offs and landings."""
+    kind: Literal["runway_damage"] = "runway_damage"
+    airfield: str
+    usable_m: int
+    reason: str = "runway damaged"
+
+    def apply(self, w: World) -> str:
+        name = self.airfield
+        if self.airfield in w.bases:
+            b = w.bases[self.airfield]
+            b.runway_m, b.runway_note, name = self.usable_m, self.reason, b.name
+        n = 0
+        for m in w.missions.values():
+            if m.airfield == self.airfield and m.runway_m is not None:
+                m.label = m.label.replace(f"({m.runway_m:,} m usable)", f"({min(m.runway_m, self.usable_m):,} m usable)")
+                m.runway_m = min(m.runway_m, self.usable_m)
+                n += 1
+        return f"{name}: runway down to {self.usable_m:,} m usable ({self.reason}); {n} landing{'s' if n != 1 else ''} affected"
+
+
 class NewZone(_Event):
     """Airspace to avoid from now on: a thunderstorm cell, a temporary restriction."""
     kind: Literal["new_zone"] = "new_zone"
@@ -148,14 +169,15 @@ class NewZone(_Event):
 
 
 Event = Annotated[Union[BaseClosure, AircraftDown, CrewDown, NewThreat, NewMission, CancelMission,
-                        PriorityChange, StockLoss, NewZone, RiskAcceptance, WindowChange, Resupply],
+                        PriorityChange, StockLoss, NewZone, RiskAcceptance, WindowChange, Resupply,
+                        RunwayDamage],
                   Field(discriminator="kind")]
 
 
 FEED_OF = {"base_closure": "airfields", "aircraft_down": "maintenance", "crew_down": "crews", "new_threat": "intel",
            "new_mission": "tasking", "cancel_mission": "tasking", "priority_change": "tasking",
            "risk_acceptance": "tasking", "window_change": "tasking", "stock_loss": "armament",
-           "resupply": "armament", "new_zone": "airspace"}
+           "resupply": "armament", "new_zone": "airspace", "runway_damage": "airfields"}
 
 
 def apply_events(world: World, events: list) -> tuple[World, list[str]]:

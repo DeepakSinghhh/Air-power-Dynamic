@@ -1,9 +1,10 @@
 """Plain-language answers to "why wasn't this mission planned?"."""
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 
-from .candidates import Candidates
+from .candidates import MAX_AIRLIFT_PACKAGE, Candidates
 from .models import Plan, Role, World
 
 
@@ -38,6 +39,12 @@ def explain_unassigned(world: World, cands: Candidates, plan: Plan) -> dict[str,
                 best = min(r.risk for r in risky)
                 why.append(f"Least-risk route is {best:.0%} vs acceptable {world.risk_ceiling(m):.0%}; "
                            f"a SEAD package or higher risk acceptance would open options.")
+        elif m.role == Role.AIRLIFT and (lift := sum(sorted((p.payload_t for p in pairs), reverse=True)
+                                                      [:MAX_AIRLIFT_PACKAGE])) < m.cargo_t - 1e-6:
+            n = min(len(pairs), MAX_AIRLIFT_PACKAGE)
+            why.append(f"Not enough lift: the {n} best feasible aircraft carry {lift:.1f} t of the {m.cargo_t:g} t"
+                       + (f" into {m.elevation_m:,} m" if m.elevation_m >= 1000 else "")
+                       + f". Screened out: {top or 'none'}.")
         else:
             tails = {p.tail for p in pairs}
             if need and len(tails) < need:
@@ -62,6 +69,12 @@ def explain_unassigned(world: World, cands: Candidates, plan: Plan) -> dict[str,
                     why.append("Every feasible aircraft needs air-to-air refuelling; tanker sorties are the bottleneck.")
             if len(why) == (1 if m.depends_on and m.depends_on not in plan.assignments else 0):
                 why.append("Feasible, but scarce aircraft/crew time produced more value on higher-priority missions.")
+            derated = {p.type: p.payload_t for p in pairs if p.payload_t < world.types[p.type].payload_t - 1e-6}
+            if m.role == Role.AIRLIFT and derated:
+                lifts = ", ".join(f"{t} {v:g} t (of {world.types[t].payload_t:g})" for t, v in sorted(derated.items()))
+                n = math.ceil(m.cargo_t / max(p.payload_t for p in pairs) - 1e-9)
+                why.append(f"Thin air at {m.elevation_m:,} m cuts helicopter lift: {lifts}; "
+                           f"{m.cargo_t:g} t needs at least {n} aircraft.")
         out[m.id] = why
     return out
 

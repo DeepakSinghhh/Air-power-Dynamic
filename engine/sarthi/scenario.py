@@ -35,11 +35,12 @@ TYPES: dict[str, AircraftType] = {t.name: t for t in [
                  prep_min=60, turnaround_min=180, payload_t=60, min_runway_m=2000),
     AircraftType(name="MEDLIFT", roles=[R.AIRLIFT], speed_kmh=600, combat_radius_km=2000,
                  prep_min=45, turnaround_min=120, payload_t=18, min_runway_m=1100),
-    # Helicopters (HADR): land or winch anywhere, short legs.
+    # Helicopters (HADR): land or winch anywhere, short legs. Payload falls with landing-site elevation
+    # (hot and high); the light type has the better high-altitude performance and the higher ceiling.
     AircraftType(name="HELO-M", roles=[R.AIRLIFT], speed_kmh=220, combat_radius_km=300,
-                 prep_min=20, turnaround_min=45, payload_t=4),
+                 prep_min=20, turnaround_min=45, payload_t=4, altitude_derate=0.13, max_landing_m=4200),
     AircraftType(name="HELO-L", roles=[R.AIRLIFT], speed_kmh=240, combat_radius_km=220,
-                 prep_min=15, turnaround_min=40, payload_t=1.2),
+                 prep_min=15, turnaround_min=40, payload_t=1.2, altitude_derate=0.08, max_landing_m=6000),
 ]}
 
 # (id, name, lat, lon, {type: count}, {weapon: stock}, alert reserve)

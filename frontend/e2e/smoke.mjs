@@ -1,5 +1,5 @@
 // End-to-end smoke test: load, plan, COAs, robustness + ground spares, fog forecast -> closures -> approve, presets,
-// drop a SAM, playback, flood-relief (HADR) scenario.
+// drop a SAM, playback, flood-relief and earthquake-relief (HADR) scenarios.
 // Needs the engine serving the built UI:  (cd engine && uvicorn sarthi.api:app)  then  npm run e2e
 //   APP_URL   default http://127.0.0.1:8000/
 //   SHOTS     directory for screenshots (default e2e/shots)
@@ -220,7 +220,7 @@ await shot('09-playback')
 
 // Same engine, flood relief: switch scenario, a breach -> rescue proposal -> approve, then a thunderstorm cell.
 await page.click('.btn:has-text("Scenario")')
-await page.click('.seg button:has-text("Flood relief")')
+await page.click('.seg button:has-text("Flood")')
 await page.click('text=Generate & plan')
 await page.waitForFunction(() => document.querySelector('.tile')?.parentElement?.textContent?.includes('Relief lifted'), null, { timeout: 180000 })
 await idle()
@@ -245,6 +245,35 @@ await idle()
 step(`CB proposal: ${(await page.locator('.proposal-head h2').textContent())?.trim()}`)
 await page.click('.proposal-head button:has-text("Reject")')
 await page.waitForSelector('.proposal-head', { state: 'detached', timeout: 60000 })
+
+// Earthquake: a cracked runway and thin air. Mission card shows the derated lift; an aftershock closes
+// Jolly Grant to the transports and the NDRF lift re-plans.
+await page.click('.btn:has-text("Scenario")')
+await page.click('.seg button:has-text("Earthquake")')
+await page.click('text=Generate & plan')
+await page.waitForSelector('text=Earthquake relief (HADR)', { timeout: 180000 })
+await idle()
+step(`quake plan: ${(await page.locator('.tile').allTextContents()).map((t) => t.replace(/\s+/g, ' ')).join(' | ')}`)
+await shot('12-quake-plan')
+await page.locator('.mrow:has-text("Kedartal")').click()
+await page.waitForSelector('dt:has-text("Thin air")', { timeout: 30000 })
+const thin = (await page.locator('dt:has-text("Thin air") + dd').textContent())?.trim()
+if (!thin?.includes('cannot land')) throw new Error(`expected a landing-ceiling note, got: ${thin}`)
+step(`Kedartal thin air: ${thin}`)
+await shot('13-quake-thin-air')
+await page.keyboard.press('Escape')
+await page.click('.btn:has-text("Inject")')
+await page.waitForSelector('.menu-item:has-text("Aftershock")', { timeout: 60000 })
+await page.click('.menu-item:has-text("Aftershock")')
+await page.waitForSelector('.proposal-head', { timeout: 180000 })
+await idle()
+step(`aftershock proposal: ${(await page.locator('.proposal-head .stat').first().textContent())?.trim()}`)
+await shot('14-quake-aftershock')
+await approve()
+await page.click('.seg button:has-text("Aircraft")')
+await page.locator('.tl-label.group:has-text("JOLLY GRANT")').click()
+await page.waitForSelector('dt:has-text("Runway") + dd:has-text("900 m usable")', { timeout: 30000 })
+step('Jolly Grant base card: 900 m usable')
 }
 
 try {

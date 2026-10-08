@@ -24,7 +24,8 @@ Checks: `npm run typecheck`, `npm run build`, and with the server running `npm r
 COA compare → adopt Min risk → approve → intent persists → robustness → ground spares → approve →
 what-if aircraft lost → reject → fog forecast → propose closures →
 approve → no duplicate closures → threshold change → time-sensitive target → drop SAM + threat surface → base fog
-card → playback → flood-relief scenario → breach rescue → approve → thunderstorm cell; fails on any console error and
+card → playback → flood-relief scenario → breach rescue → approve → thunderstorm cell → earthquake scenario →
+thin-air card at 4,750 m → aftershock → approve → base card shows 900 m usable; fails on any console error and
 saves a failure screenshot).
 
 ## Screens
@@ -76,12 +77,19 @@ saves a failure screenshot).
   with its stand-by start-up filled. The mission card lists its spares, and the Sorties tile shows the spare count.
 
 **Flood relief (HADR)**
-- *Scenario ▾ → Flood relief (HADR)* plans a monsoon flood day in Assam and Bihar with the same engine. The map refits
+- *Scenario ▾ → Flood (HADR)* plans a monsoon flood day in Assam and Bihar with the same engine. The map refits
   to the theatre. The last KPI tile becomes *Relief lifted* (tonnes planned of tonnes requested). The COA and fog
   panels are hidden (no adversary; the fog model is for north Indian winters).
 - Thunderstorm cells are dashed circles that routes avoid. *Inject event → Draw a thunderstorm cell* places one, and the
   HADR presets add a breach rescue, rain at the busiest airfield, a cell on a route, helicopters U/S and a cancelled
   road convoy. Mission cards show the landing constraint (runway length, or helicopters only).
+
+**Earthquake relief (HADR)**
+- *Scenario ▾ → Earthquake (HADR)* plans a notional earthquake in the Garhwal Himalaya. Mission cards show the landing
+  site's elevation and a **Thin air** row: what each helicopter type can lift there, or that it cannot land that high.
+- Base cards, the base status line and the readiness board show a damaged runway's usable length and which types it
+  rules out. On the earthquake, the base card's what-if is *Aftershock: runway down to 900 m*.
+- Cloud on the ridges replaces thunderstorm cells (*Inject event → Draw low cloud on a ridge*, 12 km).
 
 **Copilot** (left panel tab, or press `/`): ask in plain language, for example *why isn't STK-06 planned?*, *can we
 squeeze it in?*, *what if Halwara fogs in between 0500 and 0930?*, *how robust is the plan?* or *readiness at Jodhpur*.

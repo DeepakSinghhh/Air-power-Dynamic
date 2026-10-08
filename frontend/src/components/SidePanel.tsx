@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 
 import { eventTime, useStore, useView, type View } from '../store'
 import { C, FAMILY_COLOR, ROLE_NAME, STATUS_COLOR, STATUS_ICON, roleColor } from '../theme'
-import type { Base, EngineEvent, Mission, Threat } from '../types'
+import type { AircraftType, Base, EngineEvent, Mission, Threat } from '../types'
 import { FogChart, useMetForBase } from './Weather'
 import { baseStatus, fmtDur, reserveAt, fmtPct, fmtTime, haversineKm, routePath, serviceableAt } from '../util'
 
@@ -120,7 +120,13 @@ function PlanSummary({ view }: { view: View }) {
           <dt>Solver</dt><dd>{plan?.solver} · {plan?.status.toLowerCase()} in {plan?.solve_seconds.toFixed(1)} s</dd>
           <dt>Decision time</dt><dd>{fmtTime(world.now)} (missions launched earlier are frozen)</dd>
           <dt>Fleet</dt><dd>{Object.values(world.aircraft).filter((a) => a.serviceable).length}/{Object.keys(world.aircraft).length} serviceable · {Object.keys(world.crews).length} crews</dd>
-          {world.scenario === 'hadr' ? (
+          {world.disaster === 'earthquake' ? (
+            <>
+              <dt>Scenario</dt><dd>Earthquake relief (HADR) · domestic airspace only</dd>
+              <dt>Airfields</dt><dd>{Object.values(world.bases).filter((b) => b.runway_m !== null).map((b) => `${b.name} ${b.runway_m!.toLocaleString()} m usable`).join(' · ') || 'all runways intact'}</dd>
+              <dt>Weather</dt><dd>{Object.keys(world.zones).length} cloud-covered ridges to fly around · {Object.values(world.bases).filter((b) => b.closures.length).length} airfields with low-cloud closures</dd>
+            </>
+          ) : world.scenario === 'hadr' ? (
             <>
               <dt>Scenario</dt><dd>Flood relief (HADR) · domestic airspace only</dd>
               <dt>Weather</dt><dd>{Object.keys(world.zones).length} thunderstorm cells to avoid · {Object.values(world.bases).filter((b) => b.closures.length).length} airfields with rain closures</dd>
@@ -166,6 +172,30 @@ function PlanSummary({ view }: { view: View }) {
   )
 }
 
+/** Hot and high: what each helicopter type can lift into this landing site, and which cannot land at all. */
+function ThinAir({ view, m }: { view: View; m: Mission }) {
+  const types = [...new Set(Object.values(view.world.aircraft).map((a) => a.type))]
+    .map((t) => view.world.types[t])
+    .filter((t) => t.roles.includes('AIRLIFT') && t.min_runway_m <= (m.runway_m ?? 1e9) && t.altitude_derate > 0)
+  if (!types.length) return null
+  const lift = (t: AircraftType) => Math.max(0, t.payload_t * (1 - (t.altitude_derate * m.elevation_m) / 1000))
+  return (
+    <>
+      <dt>Thin air</dt>
+      <dd>
+        {types.map((t, i) => (
+          <span key={t.name}>
+            {i > 0 && ' · '}
+            {t.max_landing_m !== null && m.elevation_m > t.max_landing_m
+              ? <span style={{ color: C.critical }}>{t.name} cannot land above {t.max_landing_m.toLocaleString()} m</span>
+              : <>{t.name} lifts <b className="num">{lift(t).toFixed(1)} t</b> <span className="muted">of {t.payload_t} t</span></>}
+          </span>
+        ))}
+      </dd>
+    </>
+  )
+}
+
 function MissionCard({ view, m }: { view: View; m: Mission }) {
   const select = useStore((s) => s.select)
   const { act, disabled } = useAct()
@@ -187,9 +217,10 @@ function MissionCard({ view, m }: { view: View; m: Mission }) {
         <dt>{m.role === 'AIRLIFT' ? 'On ground' : 'On station'}</dt><dd>{fmtDur(m.on_station_min)}</dd>
         {m.runway_m !== null && (
           <>
-            <dt>Landing</dt><dd>{m.runway_m === 0 ? 'no runway: helicopters only' : `${m.runway_m.toLocaleString()} m runway`}</dd>
+            <dt>Landing</dt><dd>{m.runway_m === 0 ? 'no runway: helicopters only' : `${m.runway_m.toLocaleString()} m runway${m.airfield && view.world.bases[m.airfield]?.runway_m != null ? ' usable (damaged)' : ''}`}{m.elevation_m > 0 ? ` · site at ${m.elevation_m.toLocaleString()} m` : ''}</dd>
           </>
         )}
+        {m.role === 'AIRLIFT' && m.elevation_m >= 1000 && <ThinAir view={view} m={m} />}
         {view.world.scenario !== 'hadr' && (<><dt>Risk ceiling</dt><dd>{fmtPct(m.max_risk)}</dd></>)}
         <dt>Objective</dt><dd>{m.lat.toFixed(2)}N {m.lon.toFixed(2)}E</dd>
         {m.depends_on && (
@@ -322,8 +353,20 @@ function BaseCard({ view, b }: { view: View; b: Base }) {
       <h5>Readiness</h5>
       <dl className="kv">
         <dt>Aircraft</dt><dd>{sv.serviceable}/{sv.total} serviceable · {tasked.size} tasked</dd>
-        <dt>Alert reserve</dt><dd>{reserveAt(world, b.id)} fighters held at all times{world.intent.name !== 'Max effect' ? ` (intent: ${world.intent.name})` : ''}</dd>
-        <dt>Stocks</dt><dd>{Object.entries(b.stocks).map(([k, v]) => `${k} ${v}`).join(' · ') || 'none'}</dd>
+        {b.runway_m !== null && (
+          <>
+            <dt>Runway</dt>
+            <dd><span style={{ color: C.warning }} aria-hidden>▲</span> {b.runway_m.toLocaleString()} m usable · {b.runway_note}
+              <div className="muted">{Object.values(world.types).filter((t) => t.min_runway_m > b.runway_m!).map((t) => t.name).join(', ') || 'no type'} cannot use it</div>
+            </dd>
+          </>
+        )}
+        {world.scenario !== 'hadr' && (
+          <>
+            <dt>Alert reserve</dt><dd>{reserveAt(world, b.id)} fighters held at all times{world.intent.name !== 'Max effect' ? ` (intent: ${world.intent.name})` : ''}</dd>
+            <dt>Stocks</dt><dd>{Object.entries(b.stocks).map(([k, v]) => `${k} ${v}`).join(' · ') || 'none'}</dd>
+          </>
+        )}
         <dt>Closures</dt><dd>{b.closures.map((c) => `${fmtTime(c.start)}-${fmtTime(c.end)} ${c.reason}`).join('; ') || 'none'}</dd>
       </dl>
       <BaseFog baseId={b.id} />
@@ -333,10 +376,17 @@ function BaseCard({ view, b }: { view: View; b: Base }) {
           onClick={() => act(`Weather closes ${b.name} for 3 h`, (at) => ({ kind: 'base_closure', at, base: b.id, start: at + 60, end: at + 240, reason: 'weather below minima' }))}>
           Weather: close 3 h (in 1 h)
         </button>
-        <button className="btn small danger" disabled={disabled}
-          onClick={() => act(`Runway cratered at ${b.name}`, (at) => ({ kind: 'base_closure', at, base: b.id, start: at, end: at + 180, reason: 'runway cratered' }))}>
-          Runway cratered: close 3 h now
-        </button>
+        {world.disaster === 'earthquake' ? (
+          <button className="btn small danger" disabled={disabled || (b.runway_m ?? 1e9) <= 900}
+            onClick={() => act(`Aftershock: ${b.name} runway down to 900 m`, (at) => ({ kind: 'runway_damage', at, airfield: b.id, usable_m: 900, reason: 'aftershock: new cracks' }))}>
+            Aftershock: runway down to 900 m
+          </button>
+        ) : (
+          <button className="btn small danger" disabled={disabled}
+            onClick={() => act(world.scenario === 'hadr' ? `Runway flooded at ${b.name}` : `Runway cratered at ${b.name}`, (at) => ({ kind: 'base_closure', at, base: b.id, start: at, end: at + 180, reason: world.scenario === 'hadr' ? 'runway flooded' : 'runway cratered' }))}>
+            {world.scenario === 'hadr' ? 'Runway flooded' : 'Runway cratered'}: close 3 h now
+          </button>
+        )}
       </div>
       {aircraft.length > 0 && (
         <>

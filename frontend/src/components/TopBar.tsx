@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { useStore, useView } from '../store'
 import type { Kpis, ScenarioKind } from '../types'
-import { fmtPct, fmtTime } from '../util'
+import { fmtPct, fmtTime, scenarioKind, zoneTool } from '../util'
 import CoaPanel from './CoaPanel'
 import RobustPanel from './RobustPanel'
 import { WeatherMenu } from './Weather'
@@ -89,6 +89,8 @@ function EventMenu() {
   const viewTime = useStore((s) => s.viewTime)
   const now = useStore((s) => s.app?.world.now ?? 0)
   const hadr = useStore((s) => s.app?.world.scenario === 'hadr')
+  const disaster = useStore((s) => s.app?.world.disaster)
+  const zone = zoneTool(disaster)
   const ref = useRef<HTMLDivElement>(null)
   const at = Math.max(now, Math.round(viewTime / 5) * 5)
 
@@ -131,8 +133,8 @@ function EventMenu() {
           <h4>Place on map</h4>
           {hadr ? (
             <button className="menu-item" role="menuitem" onClick={() => { setOpen(false); setTool('CB') }}>
-              <b>Draw a thunderstorm cell</b>
-              <span>Click anywhere on the map · 25 km, routes must avoid it</span>
+              <b>Draw {zone.what}</b>
+              <span>Click anywhere on the map · {zone.km} km, routes must avoid it</span>
             </button>
           ) : (
             <>
@@ -155,7 +157,7 @@ function EventMenu() {
 function ScenarioMenu() {
   const [open, setOpen] = useState(false)
   const [seed, setSeed] = useState(7)
-  const current = useStore((s) => s.app?.world.scenario ?? 'conflict')
+  const current = useStore((s) => (s.app ? scenarioKind(s.app.world) : 'conflict'))
   const [kind, setKind] = useState<ScenarioKind>(current)
   const newScenario = useStore((s) => s.newScenario)
   const replan = useStore((s) => s.replan)
@@ -167,16 +169,19 @@ function ScenarioMenu() {
         Scenario ▾
       </button>
       {open && (
-        <div className="menu" style={{ width: 300 }}>
+        <div className="menu" style={{ width: 330 }}>
           <h4>Notional scenario</h4>
           <div className="seg" role="group" aria-label="Scenario type" style={{ margin: '0 12px 6px' }}>
             <button aria-pressed={kind === 'conflict'} onClick={() => setKind('conflict')}>Western front</button>
-            <button aria-pressed={kind === 'hadr'} onClick={() => setKind('hadr')}>Flood relief (HADR)</button>
+            <button aria-pressed={kind === 'hadr'} onClick={() => setKind('hadr')}>Flood (HADR)</button>
+            <button aria-pressed={kind === 'quake'} onClick={() => setKind('quake')}>Earthquake (HADR)</button>
           </div>
           <div className="menu-row muted" style={{ fontSize: 11 }}>
-            {kind === 'hadr'
-              ? 'Monsoon floods in Assam and Bihar: NDRF lift, helicopter rescue and relief drops, domestic airspace only.'
-              : 'Air tasking day: strike, SEAD, counter-air, CAS, ISR, tankers and airlift against notional SAMs.'}
+            {{
+              conflict: 'Air tasking day: strike, SEAD, counter-air, CAS, ISR, tankers and airlift against notional SAMs.',
+              hadr: 'Monsoon floods in Assam and Bihar: NDRF lift, helicopter rescue and relief drops, domestic airspace only.',
+              quake: 'Himalayan earthquake in Garhwal: a cracked runway, valley landing grounds, helicopter rescue at up to 4,750 m where thin air cuts payload.',
+            }[kind]}
           </div>
           <div className="menu-row">
             Seed

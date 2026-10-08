@@ -37,6 +37,8 @@ class Base(BaseModel):
     closures: list[Window] = Field(default_factory=list)
     stocks: dict[str, int] = Field(default_factory=dict)  # weapon category -> rounds
     fighter_reserve: int = 0  # DCA-capable aircraft held back on alert at all times
+    runway_m: int | None = None  # usable runway length if limited (e.g. earthquake damage); None = no limit
+    runway_note: str = ""
 
 
 class AircraftType(BaseModel):
@@ -51,6 +53,12 @@ class AircraftType(BaseModel):
     aar_receivers: int = 0      # receivers one tanker sortie can support
     fighter: bool = False       # counts toward the base alert reserve
     min_runway_m: int = 0       # shortest runway it can land on (0 = helicopter)
+    altitude_derate: float = 0.0  # share of payload lost per 1,000 m of landing-site elevation (helicopters)
+    max_landing_m: int | None = None  # highest landing site it can use; None = no limit
+
+    def payload_at(self, elevation_m: int = 0) -> float:
+        """Payload it can lift into a landing site at this elevation (hot-and-high derating)."""
+        return round(max(0.0, self.payload_t * (1.0 - self.altitude_derate * max(0, elevation_m) / 1000.0)), 2)
 
 
 class Aircraft(BaseModel):
@@ -112,6 +120,8 @@ class Mission(BaseModel):
     dep_lag_max: int = 30
     suppresses: list[str] = Field(default_factory=list)  # SEAD: threats it suppresses
     runway_m: int | None = None  # landing at the objective: its runway length (0 = helicopters only)
+    elevation_m: int = 0         # landing-site elevation (derates helicopter payload)
+    airfield: str | None = None  # destination airfield ID, if the objective is one (runway damage applies)
     label: str = ""
 
 
@@ -146,6 +156,7 @@ class World(BaseModel):
     intent: Intent = Field(default_factory=Intent)
     spare_policy: bool = False   # hold idle aircraft as ground spares in every plan and retask
     scenario: str = "conflict"   # "conflict" | "hadr" (humanitarian assistance & disaster relief)
+    disaster: str = ""           # for HADR: "flood" | "earthquake"
     domestic_only: bool = False  # routes must stay inside India's boundary (no foreign overflight)
     feeds: dict[str, int] = Field(default_factory=dict)  # data feed -> minute of its last update
 

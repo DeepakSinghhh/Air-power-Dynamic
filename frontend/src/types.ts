@@ -13,6 +13,8 @@ export interface Base {
   closures: TimeWindow[]
   stocks: Record<string, number>
   fighter_reserve: number
+  runway_m: number | null // usable runway if limited (earthquake damage); null = no limit
+  runway_note: string
 }
 
 export interface AircraftType {
@@ -27,6 +29,8 @@ export interface AircraftType {
   aar_receivers: number
   fighter: boolean
   min_runway_m: number
+  altitude_derate: number // share of payload lost per 1,000 m of landing-site elevation
+  max_landing_m: number | null
 }
 
 export interface Aircraft {
@@ -82,6 +86,8 @@ export interface Mission {
   dep_lag_max: number
   suppresses: string[]
   runway_m: number | null
+  elevation_m: number
+  airfield: string | null
   label: string
 }
 
@@ -111,11 +117,13 @@ export interface World {
   fatigue_threshold: number
   intent: Intent
   spare_policy: boolean
-  scenario: ScenarioKind
+  scenario: 'conflict' | 'hadr'
+  disaster: '' | 'flood' | 'earthquake'
   domestic_only: boolean
 }
 
-export type ScenarioKind = 'conflict' | 'hadr'
+/** The scenario generator to ask for (the earthquake is an HADR world with disaster = "earthquake"). */
+export type ScenarioKind = 'conflict' | 'hadr' | 'quake'
 
 export interface Sortie {
   tail: string
@@ -218,6 +226,7 @@ export type EngineEvent =
   | { kind: 'priority_change'; at: number; mission: string; priority: number }
   | { kind: 'stock_loss'; at: number; base: string; weapon: string; qty: number }
   | { kind: 'new_zone'; at: number; zone: RestrictedZone }
+  | { kind: 'runway_damage'; at: number; airfield: string; usable_m: number; reason?: string }
   | { kind: 'risk_acceptance'; at: number; mission: string; max_risk: number }
   | { kind: 'window_change'; at: number; mission: string; tot_earliest: number; tot_latest: number }
   | { kind: 'resupply'; at: number; base: string; weapon: string; qty: number }

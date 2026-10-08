@@ -144,4 +144,4 @@ def generate_hadr(seed: int = 7) -> World:
                 break
 
     return World(bases=bases, types=dict(TYPES), aircraft=aircraft, crews=crews, threats={}, zones=zones,
-                 missions=missions, area=AREA, scenario="hadr", domestic_only=True, feeds=dict(NOTIONAL_FEEDS))
+                 missions=missions, area=AREA, scenario="hadr", disaster="flood", domestic_only=True, feeds=dict(NOTIONAL_FEEDS))

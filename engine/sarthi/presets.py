@@ -11,7 +11,7 @@ import numpy as np
 from pydantic import BaseModel
 
 from . import met
-from .events import AircraftDown, BaseClosure, Event, NewMission, NewThreat, NewZone, StockLoss
+from .events import AircraftDown, BaseClosure, Event, NewMission, NewThreat, NewZone, RunwayDamage, StockLoss
 from .geo import fmt_time, haversine_km
 from .models import Mission, Plan, RestrictedZone, Role, Threat, World
 from .scenario import red_point
@@ -71,6 +71,31 @@ def fog_preset(world: World, fallback_base: str, at: int, threshold: float = 0.5
                   events=[BaseClosure(at=at, base=b.id, start=s, end=e, reason="fog forecast, RVR below minima")])
 
 
+def _on_route(world: World, plan: Plan, at: int, min_km: float) -> tuple[str, tuple[float, float]] | None:
+    """Midpoint of the highest-priority helicopter route still to fly, if it is clear of both ends."""
+    later = [a for a in plan.assignments.values() if min(s.launch for s in a.sorties) > at + 60
+             and world.missions.get(a.mission) and world.missions[a.mission].runway_m == 0 and a.sorties[0].route]
+    for a in sorted(later, key=lambda a: -world.missions[a.mission].priority):
+        path = a.sorties[0].route
+        c = path[len(path) // 2] if len(path) > 2 else ((path[0][0] + path[-1][0]) / 2, (path[0][1] + path[-1][1]) / 2)
+        m = world.missions[a.mission]
+        base = world.bases[a.sorties[0].base]
+        if min(haversine_km(*c, m.lat, m.lon), haversine_km(*c, base.lat, base.lon)) >= min_km:
+            return a.mission, c
+    return None
+
+
+def _helos_down(world: World, plan: Plan, at: int, rng: random.Random) -> Preset | None:
+    helos = sorted({s.tail for a in plan.assignments.values() for s in a.sorties
+                    if s.launch > at + 60 and world.aircraft[s.tail].type.startswith("HELO")})
+    if not helos:
+        return None
+    tails = sorted(rng.sample(helos, min(2, len(helos))))
+    return Preset(id="mx", label=f"Helicopters unserviceable: {len(tails)}",
+                  detail="Chip warnings after the morning sorties: " + ", ".join(tails),
+                  events=[AircraftDown(at=at, tails=tails, reason="unserviceable (chip warning)")])
+
+
 def hadr_presets(world: World, plan: Plan, at: int) -> list[Preset]:
     """Flood-relief events: a new breach, rain at a busy airfield, a building thunderstorm, helicopters U/S."""
     from .scenario_hadr import DISTRICTS, _near
@@ -98,29 +123,18 @@ def hadr_presets(world: World, plan: Plan, at: int) -> list[Preset]:
                           events=[BaseClosure(at=at, base=b.id, start=start, end=start + 150,
                                               reason="heavy rain, below minima")]))
 
-    later = [a for a in plan.assignments.values() if min(s.launch for s in a.sorties) > at + 60
-             and world.missions.get(a.mission) and world.missions[a.mission].runway_m == 0 and a.sorties[0].route]
-    for a in sorted(later, key=lambda a: -world.missions[a.mission].priority):
-        path = a.sorties[0].route
-        c = path[len(path) // 2] if len(path) > 2 else ((path[0][0] + path[-1][0]) / 2, (path[0][1] + path[-1][1]) / 2)
-        m = world.missions[a.mission]
-        base = world.bases[a.sorties[0].base]
-        if min(haversine_km(*c, m.lat, m.lon), haversine_km(*c, base.lat, base.lon)) < 40:
-            continue
+    hit = _on_route(world, plan, at, min_km=40)
+    if hit:
+        mid, c = hit
         zid = _unique("CB", world.zones)
-        out.append(Preset(id="cb", label=f"Thunderstorm cell on {a.mission}'s route",
+        out.append(Preset(id="cb", label=f"Thunderstorm cell on {mid}'s route",
                           detail=f"CB building at {c[0]:.2f}N {c[1]:.2f}E, avoid by 20 km",
                           events=[NewZone(at=at, zone=RestrictedZone(id=zid, lat=round(c[0], 3), lon=round(c[1], 3),
                                                                      radius_km=20, reason="Thunderstorm cell (CB): avoid"))]))
-        break
 
-    helos = sorted({s.tail for a in plan.assignments.values() for s in a.sorties
-                    if s.launch > at + 60 and world.aircraft[s.tail].type.startswith("HELO")})
-    if helos:
-        tails = sorted(rng.sample(helos, min(2, len(helos))))
-        out.append(Preset(id="mx", label=f"Helicopters unserviceable: {len(tails)}",
-                          detail="Chip warnings after the morning sorties: " + ", ".join(tails),
-                          events=[AircraftDown(at=at, tails=tails, reason="unserviceable (chip warning)")]))
+    mx = _helos_down(world, plan, at, rng)
+    if mx:
+        out.append(mx)
 
     name, lat, lon = rng.choice(DISTRICTS)
     p = _near(rng, lat, lon, km=20.0)
@@ -135,10 +149,67 @@ def hadr_presets(world: World, plan: Plan, at: int) -> list[Preset]:
     return out
 
 
+def quake_presets(world: World, plan: Plan, at: int) -> list[Preset]:
+    """Earthquake events: an aftershock cracks the damaged runway further, a landslide, cloud on a ridge,
+    helicopters unserviceable, a field hospital for a valley landing ground."""
+    from .scenario_quake import AIRFIELDS, DAY, SITES
+    from .scenario_hadr import _near
+    rng = random.Random(at)
+    out: list[Preset] = []
+
+    hit = [m for m in world.missions.values() if m.airfield == "DED" and m.runway_m is not None
+           and (m.id not in plan.assignments or min(s.launch for s in plan.assignments[m.id].sorties) > at)]
+    b = world.bases.get("DED")
+    if b is not None and (b.runway_m is None or b.runway_m > 900):
+        out.append(Preset(id="aftershock", label=f"Aftershock: {b.name} runway down to 900 m",
+                          detail="New cracks; too short for the transports"
+                                 + (f": {', '.join(m.id for m in hit)} must re-plan" if hit else ""),
+                          events=[RunwayDamage(at=at, airfield=b.id, usable_m=900,
+                                               reason="aftershock: new cracks")]))
+
+    name, lat, lon, elev = rng.choice([s for s in SITES if s[3] >= 1800])
+    p = _near(rng, lat, lon, km=3.0)
+    mid = _unique("RSC", world.missions)
+    s0 = max(at + 60, DAY[0])
+    out.append(Preset(id="landslide", label=f"Landslide hits a bus near {name}: rescue {mid} (P10)",
+                      detail=f"~25 people, {elev:,} m, pick up {fmt_time(s0)}-{fmt_time(s0 + 120)}",
+                      events=[NewMission(at=at, mission=Mission(
+                          id=mid, role=Role.AIRLIFT, priority=10, lat=p[0], lon=p[1], tot_earliest=s0,
+                          tot_latest=s0 + 120, on_station_min=20, package=0, cargo_t=2.5, runway_m=0,
+                          elevation_m=elev, max_risk=0.05,
+                          label=f"Rescue: ~25 people from a bus hit by a landslide near {name} ({elev:,} m)"))]))
+
+    hit_route = _on_route(world, plan, at, min_km=15)
+    if hit_route:
+        rid, c = hit_route
+        zid = _unique("CLD", world.zones)
+        out.append(Preset(id="cloud", label=f"Low cloud on {rid}'s route",
+                          detail=f"Ridge in cloud at {c[0]:.2f}N {c[1]:.2f}E, no VFR crossing within 10 km",
+                          events=[NewZone(at=at, zone=RestrictedZone(
+                              id=zid, lat=round(c[0], 3), lon=round(c[1], 3), radius_km=10,
+                              reason="Low cloud on the ridge: no VFR crossing"))]))
+
+    mx = _helos_down(world, plan, at, rng)
+    if mx:
+        out.append(mx)
+
+    aid, name, lat, lon, runway, elev, *_ = next(a for a in AIRFIELDS if a[0] == "GCR")
+    hid = _unique("LIFT", world.missions)
+    s0 = max(at + 90, 420)
+    out.append(Preset(id="hospital", label=f"Field hospital to {name}: 16 t ({hid}, P9)",
+                      detail=f"Army field hospital for the Alaknanda valley, land {fmt_time(s0)}-{fmt_time(s0 + 240)}",
+                      events=[NewMission(at=at, mission=Mission(
+                          id=hid, role=Role.AIRLIFT, priority=9, lat=lat, lon=lon, tot_earliest=s0,
+                          tot_latest=s0 + 240, on_station_min=60, package=0, cargo_t=16.0, runway_m=runway,
+                          elevation_m=elev, airfield=aid, max_risk=0.05,
+                          label=f"Field hospital to {name} ({runway:,} m usable)"))]))
+    return out
+
+
 def presets(world: World, plan: Plan, at: int) -> list[Preset]:
     at = max(at, world.now)
     if world.scenario == "hadr":
-        return hadr_presets(world, plan, at)
+        return quake_presets(world, plan, at) if world.disaster == "earthquake" else hadr_presets(world, plan, at)
     out: list[Preset] = []
     busy = busiest_bases(world, plan, after=at + 60)
 

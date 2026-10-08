@@ -1,4 +1,4 @@
-import type { Assignment, Base, Mission, Sortie, World } from './types'
+import type { Assignment, Base, Mission, ScenarioKind, Sortie, World } from './types'
 import type { BaseStatus } from './theme'
 
 // ---------- time ----------
@@ -133,12 +133,25 @@ export function flightAt(
 
 // ---------- status ----------
 
+/** Which generator made this world (the earthquake is an HADR world with disaster = "earthquake"). */
+export const scenarioKind = (w: World): ScenarioKind =>
+  w.scenario !== 'hadr' ? 'conflict' : w.disaster === 'earthquake' ? 'quake' : 'hadr'
+
+/** The weather hazard a commander can draw in an HADR world: thunderstorms over the plains, cloud on mountain ridges. */
+export function zoneTool(disaster: World['disaster'] | undefined) {
+  return disaster === 'earthquake'
+    ? { prefix: 'CLD', km: 12, name: 'Low cloud on a ridge', what: 'low cloud on a ridge', reason: 'Low cloud on the ridge: no VFR crossing', legend: 'Low cloud on a ridge / restricted: avoid' }
+    : { prefix: 'CB', km: 25, name: 'Thunderstorm cell', what: 'a thunderstorm cell', reason: 'Thunderstorm cell (CB): avoid', legend: 'Thunderstorm cell / restricted: avoid' }
+}
+
+export const SCENARIO_NAME: Record<ScenarioKind, string> = { conflict: 'western front', hadr: 'flood-relief', quake: 'earthquake-relief' }
+
 export function baseStatus(b: Base, t: number): { status: BaseStatus; text: string } {
   const now = b.closures.find((c) => c.start <= t && t <= c.end)
   if (now) return { status: 'closed', text: `Closed until ${fmtTime(now.end)} · ${now.reason}` }
   const next = b.closures.filter((c) => c.start > t).sort((x, y) => x.start - y.start)[0]
   if (next) return { status: 'closing', text: `Closes ${fmtTime(next.start)}-${fmtTime(next.end)} · ${next.reason}` }
-  return { status: 'open', text: 'Open' }
+  return { status: 'open', text: b.runway_m !== null ? `Open · ${b.runway_m.toLocaleString()} m of runway usable` : 'Open' }
 }
 
 export function serviceableAt(world: World, baseId: string) {

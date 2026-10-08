@@ -24,6 +24,7 @@ import {
   fmtTime,
   routePath,
   serviceableAt,
+  zoneTool,
   type Flight,
   type LonLat,
 } from '../util'
@@ -769,7 +770,7 @@ export default function MapView() {
         }),
       )
     if (tool && cursor) {
-      const km = tool === 'SAM-LR' ? 110 : tool === 'CB' ? 25 : 45
+      const km = tool === 'SAM-LR' ? 110 : tool === 'CB' ? zoneTool(view.world.disaster).km : 45
       const col = tool === 'CB' ? C.ink2 : C.critical
       layers.push(
         new PolygonLayer({
@@ -807,12 +808,13 @@ export default function MapView() {
     if (!tool) return
     const at = eventTime()
     if (tool === 'CB') {
+      const z = zoneTool(view.world.disaster)
       let k = 1
-      while (`CB-${k}` in view.world.zones) k++
+      while (`${z.prefix}-${k}` in view.world.zones) k++
       void propose(
-        [{ kind: 'new_zone', at, zone: { id: `CB-${k}`, lat: +lat.toFixed(3), lon: +lon.toFixed(3), radius_km: 25,
-          reason: 'Thunderstorm cell (CB): avoid' } }],
-        `Thunderstorm cell at ${lat.toFixed(2)}N ${lon.toFixed(2)}E`,
+        [{ kind: 'new_zone', at, zone: { id: `${z.prefix}-${k}`, lat: +lat.toFixed(3), lon: +lon.toFixed(3), radius_km: z.km,
+          reason: z.reason } }],
+        `${z.name} at ${lat.toFixed(2)}N ${lon.toFixed(2)}E`,
       )
       return
     }
@@ -914,10 +916,10 @@ export default function MapView() {
       </div>
       {tool && (
         <div className="map-overlay tool-hint">
-          Click the map to place {tool === 'CB' ? 'a thunderstorm cell (25 km)' : `a ${tool === 'SAM-LR' ? 'long' : 'medium'}-range SAM`} · Esc to cancel
+          Click the map to place {tool === 'CB' ? `${zoneTool(view.world.disaster).what} (${zoneTool(view.world.disaster).km} km)` : `a ${tool === 'SAM-LR' ? 'long' : 'medium'}-range SAM`} · Esc to cancel
         </div>
       )}
-      <Legend hazard={layersOn.hazard} hadr={view.world.scenario === 'hadr'}
+      <Legend hazard={layersOn.hazard} hadr={view.world.scenario === 'hadr'} zoneLabel={zoneTool(view.world.disaster).legend}
         families={new Set(Object.values(view.world.missions).map((m) => ROLE_FAMILY[m.role]))} />
       {tip && (
         <div className="tooltip" style={{ position: 'absolute', left: tip.x + 14, top: tip.y + 14 }}>
@@ -928,7 +930,7 @@ export default function MapView() {
   )
 }
 
-function Legend({ hazard, hadr, families }: { hazard: boolean; hadr: boolean; families: Set<Family> }) {
+function Legend({ hazard, hadr, zoneLabel, families }: { hazard: boolean; hadr: boolean; zoneLabel: string; families: Set<Family> }) {
   const [open, setOpen] = useState(true)
   return (
     <div className="map-overlay legend" aria-label="Map legend">
@@ -949,7 +951,7 @@ function Legend({ hazard, hadr, families }: { hazard: boolean; hadr: boolean; fa
           {hadr ? (
             <div className="row">
               <span className="key-ring" style={{ border: `1.5px dashed ${C.ink2}` }} />
-              Thunderstorm cell / restricted: avoid
+              {zoneLabel}
             </div>
           ) : (
             <div className="row">

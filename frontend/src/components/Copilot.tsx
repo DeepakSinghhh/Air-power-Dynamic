@@ -150,7 +150,8 @@ export default function Copilot() {
       </div>
       <form className="cp-input" onSubmit={(e) => { e.preventDefault(); send(text) }}>
         <input ref={inputRef} value={text} onChange={(e) => setText(e.target.value)} maxLength={500}
-          placeholder="e.g. what if Halwara fogs in at 05:00?" aria-label="Ask the copilot" />
+          placeholder={view.world.scenario === 'hadr' ? 'e.g. what is not planned, and why?' : 'e.g. what if Halwara fogs in at 05:00?'}
+          aria-label="Ask the copilot" />
         <button className="btn small primary" type="submit" disabled={!text.trim() || !!busy}>Ask</button>
       </form>
     </div>

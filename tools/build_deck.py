@@ -47,8 +47,9 @@ R = {
     "p05": ("66.9%", "69.9%"),
     "hadr_fulfil": ("85.1%", "96.3%"),
     "hadr_t": ("81.6%", "94.5%"),
+    "quake_t": ("81.0%", "88.1%"),
     "coa_loss": ("5.81", "3.01"),
-    "tests": "51",
+    "tests": "55",
 }
 
 
@@ -234,7 +235,7 @@ def slide_solution(prs):
     bullets(s, 0.5, 5.73, 6.9, 1.15, [
         "A minimal-disruption diff, not a fresh plan · one integrated optimiser, not seven silos",
         "Why not, and what it would take, for every unplanned mission · intel-age-aware routing · COAs",
-        "A copilot that answers only from the engine; air-gapped and indigenous; same engine plans flood relief",
+        "A copilot that answers only from the engine; air-gapped and indigenous; same engine plans flood and earthquake relief",
     ], size=11.5, gap=3)
     pic = picture(s, SHOTS / "04-fog-proposal.png", 7.75, 1.4, w=5.05)
     if pic is not None:
@@ -308,7 +309,8 @@ def slide_feasibility(prs):
         ("Fog hours forecast · held-out winter", f"{R['fog_pod'][0]} raw model", f"{R['fog_pod'][1]} (AUC {R['auc']})"),
         ("Bad-day (p05) success · ground spares", R["p05"][0], f"{R['p05'][1]}, 0 flying changes"),
         ("Expected losses · Min-risk COA", f"{R['coa_loss'][0]} Max effect", R["coa_loss"][1]),
-        ("HADR relief tonnage · 20 scenarios", f"{R['hadr_t'][0]} manual-style", R["hadr_t"][1]),
+        ("HADR relief tonnage · flood / earthquake", f"{R['hadr_t'][0]} / {R['quake_t'][0]}",
+         f"{R['hadr_t'][1]} / {R['quake_t'][1]}"),
     ]
     tbl = s.shapes.add_table(len(rows), 3, Inches(0.5), Inches(1.7), Inches(6.5), Inches(0.38 * len(rows))).table
     tbl._tbl.tblPr.find("{http://schemas.openxmlformats.org/drawingml/2006/main}tableStyleId").text = \
@@ -362,8 +364,9 @@ def slide_impact(prs):
             "Idle aircraft become ground spares at no cost to the plan",
         ]),
         ("National and dual-use", [
-            f"Same engine for flood relief: {R['hadr_t'][0]} → {R['hadr_t'][1]} of relief tonnage with the same fleet",
-            "Rescues first; helicopters where there is no runway; flights stay in Indian airspace",
+            f"Same engine for flood relief: {R['hadr_t'][0]} → {R['hadr_t'][1]} of relief tonnage with the same fleet; "
+            f"earthquake in the Himalaya {R['quake_t'][0]} → {R['quake_t'][1]}",
+            "Rescues first; helicopters where there is no runway, derated for thin air; flights stay in Indian airspace",
             "Indigenous and air-gapped: no foreign cloud or map service; runs on one laptop",
         ]),
     ]
@@ -416,7 +419,7 @@ def slide_references(prs):
         "Airfield and district headquarters coordinates (public)",
         "",
         "This submission",
-        "Working prototype: engine, map, synchronisation matrix, retask review, why-not and what-it-would-take, fog forecast, COAs, robustness, readiness, HADR, copilot",
+        "Working prototype: engine, map, synchronisation matrix, retask review, why-not and what-it-would-take, fog forecast, COAs, robustness, readiness, HADR (flood, earthquake), copilot",
         "Design and roadmap: docs/PLAN.md · all scenario data notional",
     ]
 

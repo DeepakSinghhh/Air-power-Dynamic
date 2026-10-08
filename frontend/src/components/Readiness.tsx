@@ -130,6 +130,9 @@ export default function Readiness() {
                   })}
                 </td>
                 <td className="ready-wx">
+                  {base.runway_m !== null && (
+                    <div><span style={{ color: C.warning }} aria-hidden>▲</span> runway {base.runway_m.toLocaleString()} m usable</div>
+                  )}
                   {b.closures.length === 0
                     ? <span className="muted">open all day</span>
                     : b.closures.slice(0, 2).map((c, i) => (

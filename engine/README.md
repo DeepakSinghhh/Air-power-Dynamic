@@ -11,8 +11,9 @@ python -m sarthi.demo                 # plan a 24 h day, then fog / pop-up SAM /
 python -m sarthi.benchmark --seeds 20 # optimiser vs greedy manual-planner baseline
 python -m sarthi.benchmark --coa      # the three courses of action, side by side
 python -m sarthi.benchmark --hadr     # flood-relief scenario: optimiser vs greedy, incl. relief tonnage
+python -m sarthi.benchmark --quake    # earthquake-relief scenario (Himalaya): the same comparison
 python -m sarthi.copilot_eval         # copilot routing accuracy (add --url/--model/--api for a local model)
-python -m pytest -q                   # 51 tests, incl. constraint validation, API flow, fog model, COAs, spares, HADR
+python -m pytest -q                   # 55 tests, incl. constraint validation, API flow, fog model, COAs, spares, HADR
 uvicorn sarthi.api:app --reload       # REST API under /api (docs at /docs); serves the UI if built
 ```
 
@@ -21,6 +22,7 @@ uvicorn sarthi.api:app --reload       # REST API under /api (docs at /docs); ser
 | `models.py` | Typed domain model (times are minutes from 00:00 D-day), including commander's intent |
 | `scenario.py` | Seeded notional scenario generator (western front) |
 | `scenario_hadr.py` | Seeded notional flood-relief scenario (Assam and Bihar): NDRF lift, helicopter rescue and relief drops |
+| `scenario_quake.py` | Seeded notional earthquake-relief scenario (Garhwal Himalaya): damaged runways, thin air, landing ceilings |
 | `threats.py` | SAM hazard field, intel-age inflation, SEAD suppression, Dijkstra routing |
 | `fatigue.py` | Two-process crew effectiveness model → fit TOT windows |
 | `candidates.py` | Feasibility screening, TOT domains, reason codes |
@@ -45,7 +47,7 @@ Retasking is human-in-the-loop: a proposal only takes effect when approved.
 
 ```bash
 curl -X POST localhost:8000/api/scenario -H 'content-type: application/json' -d '{"seed": 7}'
-curl -X POST localhost:8000/api/scenario -H 'content-type: application/json' -d '{"seed": 7, "kind": "hadr"}'
+curl -X POST localhost:8000/api/scenario -H 'content-type: application/json' -d '{"seed": 7, "kind": "hadr"}'   # or "quake"
 curl -X POST 'localhost:8000/api/plan?time_limit=8'
 curl 'localhost:8000/api/presets?at=120'                      # ready-made events for "now"
 curl -X POST localhost:8000/api/retask/propose -H 'content-type: application/json' -d \
@@ -86,6 +88,15 @@ flood. `World.domestic_only` masks the routing grid to India's boundary, so flig
 overfly neighbouring countries. Thunderstorm cells are restricted zones, and a `new_zone` event adds one. HADR presets:
 embankment breach (new P10 rescue), heavy rain at the busiest airfield, a thunderstorm cell on a route, helicopters
 unserviceable, a road convoy cancelled.
+
+HADR (earthquake, Garhwal Himalaya): `World.disaster = "earthquake"`. `Base.runway_m` is the usable runway after damage
+and limits take-offs as well as landings; a `runway_damage` event shortens it (and the landings of missions whose
+`Mission.airfield` it is). Helicopter payload falls with landing-site elevation (`AircraftType.altitude_derate`,
+`payload_at(elevation_m)`), and `max_landing_m` is the highest site a type can use. The candidate screen, the optimiser
+(through the per-pair payload) and the validator all apply them. Presets: an aftershock that cuts Jolly Grant to 900 m,
+a landslide rescue at altitude, low cloud on a route, helicopters unserviceable, a field hospital for a valley landing
+ground. "Why not?" says when a load cannot be lifted at all ("Not enough lift: … Screened out: runway too short") and
+how thin air cuts each helicopter's lift.
 
 Copilot: `POST /api/copilot {"text": ...}` answers from the engine only. A deterministic parser routes most questions
 with no model. An optional local open-weight model routes the rest to ONE of 18 tools, under a JSON schema whose enums

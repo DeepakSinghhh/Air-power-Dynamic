@@ -13,7 +13,8 @@ from collections import defaultdict
 
 from ortools.sat.python import cp_model
 
-from .candidates import BRIEF_MIN, CREW_REST_MIN, DEBRIEF_MIN, Candidates, build, tanker_sortie
+from .candidates import (BRIEF_MIN, CREW_REST_MIN, DEBRIEF_MIN, MAX_AIRLIFT_PACKAGE, Candidates, build,
+                         tanker_sortie)
 from .explain import explain_unassigned
 from .models import Assignment, Plan, Role, Sortie, World
 
@@ -22,7 +23,6 @@ KEEP_AIRCRAFT = 300
 ADD_AIRCRAFT = 100
 KEEP_CREW = 100
 TOT_SHIFT_PER_MIN = 2
-MAX_AIRLIFT_PACKAGE = 4
 SORTIE_COST = 120  # > max quality bonus, so no sortie is flown without need
 
 

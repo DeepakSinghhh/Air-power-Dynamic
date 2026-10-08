@@ -24,7 +24,7 @@ from . import met, robust, whatif
 from .events import AircraftDown, BaseClosure, CancelMission, PriorityChange
 from .geo import fmt_time, haversine_km
 from .kpi import kpis
-from .models import Plan, World
+from .models import Plan, Role, World
 from .readiness import readiness
 from .threats import effective_envelope
 
@@ -613,6 +613,13 @@ def execute(ask: Ask, world: World, plan: Plan, svc: Services) -> Reply:
             return reply(head + "\n- Not planned. " + (plan.unassigned.get(mid) or [""])[0])
         p = robust.success_p(world, plan).get(mid, 0.0)
         lines = [head, f"- Planned TOT **{fmt_time(a.tot)}**; P(success on the day) {pct(p, 0)}"]
+        if m.role == Role.AIRLIFT:
+            types = [world.types[world.aircraft[s.tail].type] for s in a.sorties]
+            lift = sum(t.payload_at(m.elevation_m) for t in types)
+            thin = any(t.payload_at(m.elevation_m) < t.payload_t for t in types)
+            lines.append(f"- Load {m.cargo_t:g} t" + (f" into a {m.elevation_m:,} m landing site" if m.elevation_m else "")
+                         + f"; lift planned {lift:.1f} t" + (" (helicopter payload derated for thin air)" if thin else "")
+                         + (f"; runway {m.runway_m:,} m usable" if m.runway_m else ""))
         for s in a.sorties:
             lines.append(f"- {s.tail} (crew {(s.crew or '-').split('-')[-1]}) from {world.bases[s.base].name}: "
                          f"launch {fmt_time(s.launch)}, recover {fmt_time(s.recover)}, {s.route_km:.0f} km, "

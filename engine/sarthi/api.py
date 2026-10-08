@@ -12,6 +12,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 from fastapi import APIRouter, FastAPI, HTTPException
@@ -27,6 +28,7 @@ from .presets import presets
 from .retask import RetaskResult, diff_plans, retask
 from .scenario import generate
 from .scenario_hadr import generate_hadr
+from .scenario_quake import generate_quake
 from .threats import RiskField, effective_envelope
 
 app = FastAPI(title="VAYU-SARTHI engine", version="0.2.0")
@@ -42,7 +44,7 @@ LIVE_MET_TTL_S = 1800
 
 class ScenarioReq(BaseModel):
     seed: int = 7
-    kind: str = "conflict"  # "conflict" | "hadr"
+    kind: Literal["conflict", "hadr", "quake"] = "conflict"  # western front | flood relief | earthquake relief
 
 
 class ProposeReq(BaseModel):
@@ -92,7 +94,7 @@ def get_state() -> dict:
 @api.post("/scenario")
 def new_scenario(req: ScenarioReq) -> dict:
     with LOCK:
-        world = generate_hadr(req.seed) if req.kind == "hadr" else generate(req.seed)
+        world = {"hadr": generate_hadr, "quake": generate_quake}.get(req.kind, generate)(req.seed)
         STATE.update(world=world, plan=None, baseline_kpis=None, history=[], proposal=None,
                      version=STATE["version"] + 1)
         return snapshot()
