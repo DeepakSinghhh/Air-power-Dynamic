@@ -10,7 +10,9 @@ retasking options in seconds, for a human commander to approve.
 - **Core engine:** [`engine/`](engine/) (CP-SAT allocation, threat-aware routing, minimal-disruption retasking)
 - **UI:** [`frontend/`](frontend/) (offline COP map + synchronisation matrix + human-in-the-loop retask review +
   fog forecast + courses of action + robustness + readiness board + flood and earthquake relief scenarios + copilot)
-- **Idea deck:** [`docs/VAYU-SARTHI_SIH2026_idea.pptx`](docs/VAYU-SARTHI_SIH2026_idea.pptx) (rebuild with
+- **SIH idea submission (official template, team NexaBuild):** [`docs/NexaBuild_VAYU-SARTHI_SIH2026.pdf`](docs/NexaBuild_VAYU-SARTHI_SIH2026.pdf)
+  (the PDF for the portal; source `.pptx` alongside, rebuilt by `python -I tools/build_sih_deck.py`)
+- **Earlier idea deck (own layout):** [`docs/VAYU-SARTHI_SIH2026_idea.pptx`](docs/VAYU-SARTHI_SIH2026_idea.pptx) (rebuild with
   `python -I tools/build_deck.py` after `npm run e2e`; PDF preview alongside)
 - **Demo video (backup):** [`docs/media/VAYU-SARTHI_demo.mp4`](docs/media/VAYU-SARTHI_demo.mp4), a captioned 3-minute
   walkthrough recorded against the live engine (re-record with `npm run demo-video` in `frontend/`)
