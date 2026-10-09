@@ -1,0 +1,317 @@
+import { useMemo } from 'react'
+import { create } from 'zustand'
+
+import { api } from './api'
+import type { AppState, CoaResponse, CopilotMessage, CopilotStatus, EngineEvent, Hazard, MetResponse, MetSource, Preset, Proposal, RobustnessResponse, ScenarioKind, Selection, WhatIfResponse } from './types'
+import { SCENARIO_NAME } from './util'
+
+export interface Layers {
+  hazard: boolean
+  threats: boolean
+  routes: boolean
+  aircraft: boolean
+  labels: boolean
+  rivers: boolean
+}
+
+export type Tool = null | 'SAM-MR' | 'SAM-LR' | 'CB'
+
+interface Store {
+  app: AppState | null
+  proposal: Proposal | null
+  proposalLabel: string
+  hazard: Hazard | null
+  presets: Preset[] | null
+  busy: { label: string; since: number } | null
+  error: string | null
+  selection: Selection | null
+  hoverMission: string | null
+  viewTime: number
+  playing: boolean
+  speed: number // simulated minutes per real second
+  timelineMode: 'missions' | 'aircraft' | 'readiness'
+  hideIdle: boolean
+  layers: Layers
+  tool: Tool
+  met: MetResponse | null
+  metSource: MetSource
+  metThreshold: number
+  metLoading: boolean
+  metError: string | null
+  coas: CoaResponse | null
+  coaOpen: boolean
+  robust: RobustnessResponse | null
+  robustOpen: boolean
+
+  init: () => Promise<void>
+  newScenario: (seed: number, kind?: ScenarioKind) => Promise<void>
+  replan: () => Promise<void>
+  loadPresets: () => Promise<void>
+  propose: (events: EngineEvent[], label: string) => Promise<void>
+  approve: () => Promise<void>
+  reject: () => Promise<void>
+  loadHazard: () => Promise<void>
+  select: (s: Selection | null) => void
+  setHoverMission: (id: string | null) => void
+  setViewTime: (t: number) => void
+  setPlaying: (p: boolean) => void
+  setSpeed: (s: number) => void
+  setTimelineMode: (m: 'missions' | 'aircraft' | 'readiness') => void
+  setHideIdle: (v: boolean) => void
+  toggleLayer: (k: keyof Layers) => void
+  setTool: (t: Tool) => void
+  dismissError: () => void
+  loadMet: (source?: MetSource, threshold?: number) => Promise<void>
+  setCoaOpen: (open: boolean) => void
+  loadCoas: () => Promise<void>
+  adoptCoa: (id: string, name: string) => Promise<void>
+  setRobustOpen: (open: boolean) => void
+  loadRobust: () => Promise<void>
+  proposeSpares: () => Promise<void>
+  whatIfLost: (tail: string) => Promise<void>
+  whatIf: WhatIfResponse | null
+  loadWhatIf: (mission: string) => Promise<void>
+  leftTab: 'missions' | 'copilot'
+  setLeftTab: (t: 'missions' | 'copilot') => void
+  chat: CopilotMessage[]
+  copilotStatus: CopilotStatus | null
+  askCopilot: (text: string) => Promise<void>
+  loadCopilotStatus: () => Promise<void>
+}
+
+const PLAN_SECONDS = 10
+
+export const useStore = create<Store>((set, get) => {
+  async function run<T>(label: string, fn: () => Promise<T>): Promise<T | undefined> {
+    if (get().busy) return undefined
+    set({ busy: { label, since: performance.now() }, error: null })
+    try {
+      return await fn()
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) })
+      return undefined
+    } finally {
+      set({ busy: null })
+    }
+  }
+
+  const commit = (app: AppState) => {
+    // Any committed change makes computed COAs stale.
+    set((s) => ({ app, proposal: null, presets: null, coas: null, robust: null, whatIf: null, viewTime: Math.max(s.viewTime, app.world.now) }))
+    // The fog model is trained on north Indian winter fog; it does not apply to the monsoon flood scenario.
+    if (app.world.scenario === 'hadr') set({ met: null })
+    else void get().loadMet()
+  }
+
+  return {
+    app: null,
+    proposal: null,
+    proposalLabel: '',
+    hazard: null,
+    presets: null,
+    busy: null,
+    error: null,
+    selection: null,
+    hoverMission: null,
+    viewTime: 0,
+    playing: false,
+    speed: 30,
+    timelineMode: 'missions',
+    hideIdle: true,
+    layers: { hazard: false, threats: true, routes: true, aircraft: true, labels: true, rivers: true },
+    tool: null,
+    met: null,
+    metSource: 'snapshot',
+    metThreshold: 0.5,
+    metLoading: false,
+    metError: null,
+    coas: null,
+    coaOpen: false,
+    robust: null,
+    robustOpen: false,
+    whatIf: null,
+    leftTab: 'missions',
+    chat: [],
+    copilotStatus: null,
+
+    init: async () => {
+      await run('Loading operational picture', async () => {
+        let app = await api.state()
+        set({ app, viewTime: app.world.now })
+        if (!app.plan) {
+          set({ busy: { label: 'Optimising air tasking plan', since: performance.now() } })
+          app = await api.plan(PLAN_SECONDS)
+        }
+        commit(app)
+      })
+    },
+
+    newScenario: async (seed, kind = 'conflict') => {
+      await run(`Generating ${kind === 'conflict' ? '' : SCENARIO_NAME[kind]} scenario ${seed}`.replace('  ', ' '), async () => {
+        const fresh = await api.scenario(seed, kind)
+        set((s) => ({ app: fresh, proposal: null, selection: null, viewTime: fresh.world.now, hazard: null, met: null, coas: null, robust: null,
+          chat: s.chat.length ? [...s.chat, { role: 'note' as const, text: `New ${SCENARIO_NAME[kind]} scenario, seed ${seed}` }] : s.chat }))
+        set({ busy: { label: 'Optimising air tasking plan', since: performance.now() } })
+        commit(await api.plan(PLAN_SECONDS))
+      })
+    },
+
+    replan: async () => {
+      await run('Re-optimising full plan', async () => commit(await api.plan(PLAN_SECONDS)))
+    },
+
+    loadPresets: async () => {
+      const app = get().app
+      if (!app?.plan) return
+      const at = Math.max(app.world.now, Math.round(get().viewTime / 5) * 5)
+      try {
+        set({ presets: await api.presets(at) })
+      } catch (e) {
+        set({ error: e instanceof Error ? e.message : String(e) })
+      }
+    },
+
+    propose: async (events, label) => {
+      set({ tool: null, playing: false })
+      const r = await run('Re-optimising with minimal disruption', () => api.propose(events, PLAN_SECONDS))
+      if (r) set({ proposal: r, proposalLabel: label, viewTime: Math.max(get().viewTime, r.world.now) })
+    },
+
+    approve: async () => {
+      const p = get().proposal
+      if (!p) return
+      const r = await run('Committing retask', () => api.approve(p.id))
+      if (r) commit(r)
+    },
+
+    reject: async () => {
+      const p = get().proposal
+      if (!p) return
+      const r = await run('Discarding proposal', () => api.reject(p.id))
+      if (r) commit(r)
+    },
+
+    loadHazard: async () => {
+      try {
+        set({ hazard: await api.hazard(!!get().proposal) })
+      } catch (e) {
+        set({ error: e instanceof Error ? e.message : String(e) })
+      }
+    },
+
+    select: (selection) => set({ selection }),
+    setHoverMission: (hoverMission) => set({ hoverMission }),
+    setViewTime: (viewTime) => set({ viewTime: Math.max(0, Math.min(viewTime, 1800)) }),
+    setPlaying: (playing) => set({ playing }),
+    setSpeed: (speed) => set({ speed }),
+    setTimelineMode: (timelineMode) => set({ timelineMode }),
+    setHideIdle: (hideIdle) => set({ hideIdle }),
+    toggleLayer: (k) => set((s) => ({ layers: { ...s.layers, [k]: !s.layers[k] } })),
+    setTool: (tool) => set({ tool }),
+    dismissError: () => set({ error: null }),
+
+    setCoaOpen: (coaOpen) => set({ coaOpen }),
+
+    loadCoas: async () => {
+      const r = await run('Planning three courses of action', () => api.coas(6))
+      if (r) set({ coas: r })
+    },
+
+    adoptCoa: async (id, name) => {
+      const r = await run('Preparing proposal', () => api.coaPropose(id))
+      if (r) set({ proposal: r, proposalLabel: `Adopt COA: ${name}`, coaOpen: false })
+    },
+
+    setRobustOpen: (robustOpen) => set({ robustOpen }),
+
+    setLeftTab: (leftTab) => set({ leftTab }),
+
+    loadCopilotStatus: async () => {
+      try {
+        set({ copilotStatus: await api.copilotStatus() })
+      } catch {
+        /* the copilot still works without status */
+      }
+    },
+
+    askCopilot: async (text) => {
+      const q = text.trim()
+      if (!q) return
+      set((s) => ({ chat: [...s.chat, { role: 'user', text: q }], leftTab: 'copilot' }))
+      const r = await run(`Copilot: ${q.length > 36 ? `${q.slice(0, 36)}…` : q}`, () => api.copilot(q))
+      if (!r) {
+        set((s) => ({ chat: [...s.chat, { role: 'note', text: 'No answer (see the error message).' }] }))
+        return
+      }
+      set((s) => ({ chat: [...s.chat, { role: 'copilot', reply: r }] }))
+      if (r.proposal) set({ proposal: r.proposal, proposalLabel: r.proposal_label ?? 'Copilot proposal' })
+    },
+
+    loadWhatIf: async (mission) => {
+      set({ whatIf: null })
+      const r = await run(`What would get ${mission} planned?`, () => api.whatIf(mission, 3))
+      if (r) set({ whatIf: r })
+    },
+
+    loadRobust: async () => {
+      const r = await run('Simulating 2,000 executions of the plan', () => api.robustness(2000))
+      if (r) set({ robust: r })
+    },
+
+    proposeSpares: async () => {
+      const r = await run('Preparing proposal', () => api.sparesPropose())
+      if (r) set({ proposal: r, proposalLabel: 'Hold ground spares', robustOpen: false })
+    },
+
+    whatIfLost: async (tail) => {
+      set({ robustOpen: false })
+      await get().propose([{ kind: 'aircraft_down', at: eventTime(), tails: [tail], reason: 'unserviceable (what-if)' }],
+        `What if ${tail} goes unserviceable?`)
+    },
+
+    loadMet: async (source, threshold) => {
+      const s = get()
+      const src = source ?? s.metSource
+      const thr = threshold ?? s.metThreshold
+      const at = Math.max(s.app?.world.now ?? 0, Math.round(s.viewTime / 5) * 5)
+      set({ metSource: src, metThreshold: thr, metLoading: true, metError: null })
+      try {
+        set({ met: await api.met(src, thr, at) })
+      } catch (e) {
+        // Live data can be unreachable (offline venue): keep the last forecast and say why.
+        set({ metError: e instanceof Error ? e.message : String(e) })
+      } finally {
+        set({ metLoading: false })
+      }
+    },
+  }
+})
+
+/** What the screens render: the pending proposal if there is one, otherwise the committed plan. */
+export function useView() {
+  const app = useStore((s) => s.app)
+  const proposal = useStore((s) => s.proposal)
+  return useMemo(() => {
+    if (!app) return null
+    const world = proposal?.world ?? app.world
+    const plan = proposal?.plan ?? app.plan
+    return {
+      world,
+      plan,
+      envelopes: proposal?.envelopes ?? app.envelopes,
+      kpis: proposal?.kpis ?? app.kpis,
+      // KPI deltas: a proposal is compared with the committed plan, a plan with the manual-style baseline.
+      reference: proposal ? app.kpis : app.baseline_kpis,
+      referenceLabel: proposal ? 'vs current plan' : app.reference_label,
+      previous: proposal ? app.plan : null,
+      proposal,
+    }
+  }, [app, proposal])
+}
+
+export type View = NonNullable<ReturnType<typeof useView>>
+
+export function eventTime(): number {
+  const { app, viewTime } = useStore.getState()
+  return Math.max(app?.world.now ?? 0, Math.round(viewTime / 5) * 5)
+}
