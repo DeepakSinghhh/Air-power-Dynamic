@@ -2,15 +2,24 @@
 
     uvicorn sarthi.api:app --reload        # API at /api, UI at / (after `npm run build`)
 
-Single in-memory session. Retasking is human-in-the-loop: /retask/propose returns
-a proposal (diff + naive comparison) that only takes effect on /approve.
+Each browser tab is its own in-memory session (header X-Sarthi-Session; without it, a shared
+"default" session), so visitors to a public deployment do not see each other's changes. Retasking is
+human-in-the-loop: /retask/propose returns a proposal (diff + naive comparison) that only takes effect
+on /approve.
+
+Environment: SARTHI_MAX_SESSIONS (40), SARTHI_SESSION_IDLE_H (6), SARTHI_MAX_SOLVE_S (20),
+SARTHI_UI_DIR (the built UI; default ../frontend/dist); solver tuning in optimizer.py
+(SARTHI_SOLVER_WORKERS, SARTHI_TIME_SCALE; both derived from the container's CPU quota if unset).
 """
 from __future__ import annotations
 
 import base64
+import os
+import re
 import threading
 import time
 import uuid
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Literal
 
@@ -33,11 +42,105 @@ from .threats import RiskField, effective_envelope
 
 app = FastAPI(title="VAYU-SARTHI engine", version="0.2.0")
 api = APIRouter(prefix="/api")
-LOCK = threading.Lock()
-STATE: dict = {"world": None, "plan": None, "baseline_kpis": None, "reference_label": "vs manual-style plan",
-               "version": 0, "history": [],
-               "proposal": None, "met_live": None, "coas": None, "hardened": None,
-               "copilot_log": [], "copilot_ctx": {}}
+
+MAX_SESSIONS = int(os.environ.get("SARTHI_MAX_SESSIONS", "40"))
+SESSION_IDLE_S = float(os.environ.get("SARTHI_SESSION_IDLE_H", "6")) * 3600
+MAX_SOLVE_S = float(os.environ.get("SARTHI_MAX_SOLVE_S", "20"))
+MAX_RUNS = 5000
+SESSION_HEADER = b"x-sarthi-session"
+_SID = re.compile(r"[A-Za-z0-9-]{8,64}")
+
+
+def _fresh_state() -> dict:
+    return {"world": None, "plan": None, "baseline_kpis": None, "reference_label": "vs manual-style plan",
+            "version": 0, "history": [],
+            "proposal": None, "met_live": None, "coas": None, "hardened": None,
+            "copilot_log": [], "copilot_ctx": {}}
+
+
+class _Session:
+    def __init__(self) -> None:
+        self.state = _fresh_state()
+        self.lock = threading.Lock()
+        self.seen = time.time()
+
+
+_SESSIONS: dict[str, _Session] = {}
+_SESSIONS_LOCK = threading.Lock()
+_CURRENT: ContextVar[_Session | None] = ContextVar("sarthi_session", default=None)
+
+
+def _session(sid: str) -> _Session:
+    """The visitor's session, created on first use; idle ones expire and the least recent is evicted at the cap."""
+    with _SESSIONS_LOCK:
+        now = time.time()
+        s = _SESSIONS.get(sid)
+        if s is None:
+            for k in [k for k, v in _SESSIONS.items() if now - v.seen > SESSION_IDLE_S]:
+                del _SESSIONS[k]
+            while len(_SESSIONS) >= MAX_SESSIONS:
+                del _SESSIONS[min(_SESSIONS, key=lambda k: _SESSIONS[k].seen)]
+            s = _SESSIONS[sid] = _Session()
+        s.seen = now
+        return s
+
+
+def _current() -> _Session:
+    s = _CURRENT.get()
+    return s if s is not None else _session("default")
+
+
+class _StateProxy:
+    """STATE reads and writes the calling visitor's session."""
+    def __getitem__(self, k):
+        return _current().state[k]
+
+    def __setitem__(self, k, v) -> None:
+        _current().state[k] = v
+
+    def update(self, *a, **kw) -> None:
+        _current().state.update(*a, **kw)
+
+
+class _LockProxy:
+    """LOCK serialises requests within one session; different visitors run in parallel."""
+    def __enter__(self):
+        _current().lock.acquire()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        _current().lock.release()
+
+
+STATE = _StateProxy()
+LOCK = _LockProxy()
+
+
+class _SessionMiddleware:
+    """Bind each /api request to the session named by its X-Sarthi-Session header."""
+    def __init__(self, inner) -> None:
+        self.inner = inner
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not scope["path"].startswith("/api"):
+            return await self.inner(scope, receive, send)
+        sid = dict(scope["headers"]).get(SESSION_HEADER, b"").decode("latin-1")
+        token = _CURRENT.set(_session(sid if _SID.fullmatch(sid) else "default"))
+        try:
+            await self.inner(scope, receive, send)
+        finally:
+            _CURRENT.reset(token)
+
+
+app.add_middleware(_SessionMiddleware)
+
+
+def _cap(t: float) -> float:
+    """Solver time limits from the client are clamped, so one request cannot hold a shared server, then
+    stretched on a fractional-CPU host (optimizer.TIME_SCALE) so the solver still finds good plans."""
+    return min(max(float(t), 0.5), MAX_SOLVE_S) * optimizer.TIME_SCALE
+
+
 LLM = copilot.LLMRouter.from_env()  # optional local model (SARTHI_LLM_URL); the copilot works without it
 LIVE_MET_TTL_S = 1800
 
@@ -84,6 +187,12 @@ def _need_plan() -> tuple[World, Plan]:
     return STATE["world"], STATE["plan"]
 
 
+@api.get("/health")
+def health() -> dict:
+    """Liveness for the host's health check; also tells the UI when it runs on a slow, shared CPU."""
+    return {"ok": True, "cpus": optimizer.CPUS, "time_scale": optimizer.TIME_SCALE}
+
+
 @api.get("/state")
 def get_state() -> dict:
     with LOCK:
@@ -106,7 +215,7 @@ def make_plan(time_limit: float = 10.0) -> dict:
         world = _ensure_world()
         cands = candidates.build(world)
         base = greedy.solve(world, cands)
-        plan = optimizer.solve(world, cands, hint=base, time_limit=time_limit)
+        plan = optimizer.solve(world, cands, hint=base, time_limit=_cap(time_limit))
         STATE.update(plan=plan, baseline_kpis=kpis(world, base), reference_label="vs manual-style plan",
                      proposal=None, version=STATE["version"] + 1)
         _warm_llm(world, plan)
@@ -165,7 +274,7 @@ def met_forecast(source: str = "snapshot", threshold: float = 0.5, at: int | Non
 def _coas(time_limit: float) -> dict:
     world, plan = _need_plan()
     t0 = time.perf_counter()
-    results = coa.compare(world, plan, time_limit)
+    results = coa.compare(world, plan, _cap(time_limit))
     STATE["coas"] = {"version": STATE["version"], "items": {c.id: (w, c) for w, c in results}}
     return {"version": STATE["version"], "now": world.now, "current_intent": world.intent,
             "seconds": round(time.perf_counter() - t0, 1),
@@ -208,7 +317,7 @@ def what_would_it_take(mission: str, time_limit: float = 3.0) -> dict:
         if mission in plan.assignments:
             raise HTTPException(409, f"{mission} is already planned")
         t0 = time.perf_counter()
-        out = whatif.what_would_it_take(world, plan, mission, time_limit)
+        out = whatif.what_would_it_take(world, plan, mission, _cap(time_limit))
         return {"mission": mission, "version": STATE["version"], "seconds": round(time.perf_counter() - t0, 1),
                 "outcomes": out}
 
@@ -234,7 +343,7 @@ def get_presets(at: int = 0) -> list:
 
 def _propose(events: list, time_limit: float = 10.0) -> dict:
     world, plan = _need_plan()
-    res: RetaskResult = retask(world, plan, events, time_limit, compare_naive=True)
+    res: RetaskResult = retask(world, plan, events, _cap(time_limit), compare_naive=True)
     pid = uuid.uuid4().hex[:8]
     STATE["proposal"] = {"id": pid, "version": STATE["version"], "result": res}
     return {"id": pid, "notes": res.notes, "diff": res.diff, "naive_diff": res.naive_diff,
@@ -284,7 +393,7 @@ def reject(pid: str) -> dict:
 def stress(runs: int = 2000) -> dict:
     with LOCK:
         world, plan = _need_plan()
-        return stress_test(world, plan, runs)
+        return stress_test(world, plan, min(max(runs, 100), MAX_RUNS))
 
 
 def _robustness(runs: int) -> dict:
@@ -305,7 +414,7 @@ def robustness(runs: int = 2000) -> dict:
     """Monte Carlo execution of the committed plan and, if spares are not yet held, of the same plan
     with ground spares (nothing else changed)."""
     with LOCK:
-        return _robustness(runs)
+        return _robustness(min(max(runs, 100), MAX_RUNS))
 
 
 def _propose_spares(compute: bool = False) -> dict:
@@ -393,6 +502,6 @@ def copilot_log() -> list:
 
 app.include_router(api)
 
-DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+DIST = Path(os.environ.get("SARTHI_UI_DIR") or Path(__file__).resolve().parents[2] / "frontend" / "dist")
 if DIST.is_dir():
     app.mount("/", StaticFiles(directory=DIST, html=True), name="ui")

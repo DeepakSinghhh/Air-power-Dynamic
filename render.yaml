@@ -1,0 +1,19 @@
+# Render Blueprint: one free web service built from the Dockerfile (engine + UI on one port).
+# Render dashboard -> New -> Blueprint -> pick this repo. See docs/DEPLOY.md.
+services:
+  - type: web
+    name: vayu-sarthi
+    runtime: docker
+    plan: free
+    branch: main
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      # The free instance has 0.1 CPU and 512 MB; the engine also detects this on its own.
+      - key: SARTHI_SOLVER_WORKERS
+        value: "1"
+      - key: SARTHI_TIME_SCALE
+        value: "2.5"
+      - key: SARTHI_MAX_SESSIONS
+        value: "15"

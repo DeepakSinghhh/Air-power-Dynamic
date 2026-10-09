@@ -127,3 +127,18 @@ def test_copilot_answers_proposes_and_logs():
     client.post(f"/api/retask/{r['proposal']['id']}/reject")
     log = client.get("/api/copilot/log").json()
     assert [e["intent"] for e in log[-2:]] == ["status", "close_base"] and log[-1]["proposal"]
+
+
+def test_sessions_are_isolated_per_visitor():
+    a = {"x-sarthi-session": "visitor-aaaa1111"}
+    b = {"x-sarthi-session": "visitor-bbbb2222"}
+    assert client.post("/api/scenario", json={"seed": 3, "kind": "quake"}, headers=a).status_code == 200
+    assert client.post("/api/scenario", json={"seed": 3}, headers=b).status_code == 200
+    assert client.get("/api/state", headers=a).json()["world"]["disaster"] == "earthquake"
+    assert client.get("/api/state", headers=b).json()["world"]["scenario"] == "conflict"
+    # A malformed id falls back to the shared default session instead of creating one per request.
+    assert client.get("/api/state", headers={"x-sarthi-session": "bad id!"}).status_code == 200
+    # Client-supplied solver limits are clamped.
+    from sarthi import api as api_mod
+    scale = api_mod.optimizer.TIME_SCALE
+    assert api_mod._cap(10_000) == api_mod.MAX_SOLVE_S * scale and api_mod._cap(0) == 0.5 * scale

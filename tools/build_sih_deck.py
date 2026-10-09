@@ -1,6 +1,7 @@
 """Build the SIH 2026 idea deck on the official SIH template (6 slides, NexaBuild).
 
     python -I tools/build_sih_deck.py            # writes docs/NexaBuild_VAYU-SARTHI_SIH2026.pptx
+    python -I tools/build_sih_deck.py --live https://<user>-vayu-sarthi.hf.space   # adds the live link
 
 The template's frame is kept as it is: the SIH title and logo, the team badge, the slide titles, the
 footer bar and the idea-detail pointers (used word for word as section labels). The instructions slide is
@@ -10,7 +11,7 @@ Convert to PDF for the portal:  soffice --headless --convert-to pdf docs/NexaBui
 """
 from __future__ import annotations
 
-import sys
+import argparse
 from pathlib import Path
 
 from lxml import etree
@@ -25,7 +26,9 @@ from pptx.util import Inches, Pt
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "tools" / "deck_assets"
-OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "docs" / "NexaBuild_VAYU-SARTHI_SIH2026.pptx"
+OUT = ROOT / "docs" / "NexaBuild_VAYU-SARTHI_SIH2026.pptx"
+REPO_URL = "https://github.com/DeepakSinghhh/Air-power-Dynamic"
+LIVE_URL = ""  # set with --live (docs/DEPLOY.md)
 
 TEAM = "NexaBuild"
 TEAM_ID = ""  # left blank until the portal issues it
@@ -290,6 +293,10 @@ def slide_title(s):
             first = sh.text_frame.paragraphs[0]
             if not first.runs:  # the template's empty first line
                 sh.text_frame._txBody.remove(first._p)
+    if LIVE_URL:
+        text(s, 0.42, 6.62, 5.7, 0.36, [{"runs": [
+            ("Live prototype: ", {"bold": True, "color": GREEN}),
+            (LIVE_URL.removeprefix("https://"), {"link": LIVE_URL, "color": TX2, "bold": True})]}], size=14)
 
 
 def slide_solution(s):
@@ -623,12 +630,13 @@ def slide_references(s):
                      [(short, {"link": url, "color": TX2})], use])
     table(s, 0.45, 1.6, [5.35, 3.4, 3.68], rows, size=10.5, row_h=0.42, header_h=0.36)
     b = box(s, 0.45, 6.3, 12.43, 0.48)
-    text(s, 0.6, 6.32, 12.1, 0.44, [{"runs": [
-        ("Our prototype (open source): ", {"bold": True}),
-        ("github.com/DeepakSinghhh/Air-power-Dynamic", {"link": "https://github.com/DeepakSinghhh/Air-power-Dynamic",
-                                                         "color": TX2}),
+    live = [("Live prototype: ", {"bold": True}),
+            (LIVE_URL.removeprefix("https://"), {"link": LIVE_URL, "color": TX2}), ("   ·   ", {"color": MUTED}),
+            ("Code: ", {"bold": True})] if LIVE_URL else [("Our prototype (open source): ", {"bold": True})]
+    text(s, 0.6, 6.32, 12.1, 0.44, [{"runs": live + [
+        (REPO_URL.removeprefix("https://"), {"link": REPO_URL, "color": TX2}),
         ("   ·   all scenario data is notional; maps use India's official boundary", {"color": MUTED})]}],
-         size=11, anchor=MSO_ANCHOR.MIDDLE)
+         size=11 if not LIVE_URL else 10.5, anchor=MSO_ANCHOR.MIDDLE)
     b.name = "prototype-link"
 
 
@@ -646,6 +654,12 @@ def _navy_links(prs) -> None:
 
 
 def main() -> None:
+    global LIVE_URL, OUT
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--live", default="", help="public URL of the deployed prototype (shown on slides 1 and 6)")
+    ap.add_argument("out", nargs="?", type=Path, default=OUT)
+    args = ap.parse_args()
+    LIVE_URL, OUT = args.live.rstrip("/"), args.out
     prs = Presentation(str(ASSETS / "SIH2026-IDEA-Presentation-Format.pptx"))
     _navy_links(prs)
     slides = list(prs.slides)
