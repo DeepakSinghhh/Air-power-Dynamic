@@ -9,7 +9,7 @@ Smart India Hackathon 2026 · Problem Statement **26250** (Air Power) · Ministr
 Team **NexaBuild**
 
 **[Live demo: vayu-sarthi.onrender.com](https://vayu-sarthi.onrender.com/)** ·
-[Demo video](docs/media/VAYU-SARTHI_demo.mp4) ·
+[Demo video (narrated, 6½ min)](docs/media/VAYU-SARTHI_demo.mp4) ·
 [Idea deck (PDF)](docs/NexaBuild_VAYU-SARTHI_SIH2026.pdf) ·
 [Design and roadmap](docs/PLAN.md)
 
@@ -27,6 +27,14 @@ Team **NexaBuild**
 > *Sarthi* means charioteer. Arjuna fights; the charioteer reads the battlefield, sees the options and advises.
 > VAYU-SARTHI is the air planner's charioteer: it fuses the picture, predicts what is about to break, computes the
 > best re-plan in seconds and explains it. **The commander decides.**
+
+### Watch the demo
+
+[![Watch the narrated walkthrough of VAYU-SARTHI (6 min 34 s)](docs/media/screenshots/00-demo-video.jpg)](docs/media/VAYU-SARTHI_demo.mp4)
+
+A narrated walkthrough of the live prototype: the day's plan, why missions are not planned, a pop-up SAM retask, the
+copilot, courses of action, robustness, readiness, fog closures, then flood and earthquake relief. Recorded on the free
+cloud server with the solver's waiting time cut; the MP4 includes English subtitles.
 
 ---
 
