@@ -615,7 +615,7 @@ The full plan, algorithms and benchmark details are in [`docs/PLAN.md`](docs/PLA
 | [`docs/PLAN.md`](docs/PLAN.md) | Full design: problem analysis, algorithms, measured results, roadmap, demo script |
 | [`docs/DEPLOY.md`](docs/DEPLOY.md) | Deploying a public copy (Render free tier, Docker, Hugging Face) |
 | [`docs/NexaBuild_VAYU-SARTHI_SIH2026.pdf`](docs/NexaBuild_VAYU-SARTHI_SIH2026.pdf) | SIH idea submission on the official template (source `.pptx` alongside; rebuild with `python -I tools/build_sih_deck.py`) |
-| [`docs/media/VAYU-SARTHI_demo.mp4`](docs/media/VAYU-SARTHI_demo.mp4) | Captioned 3-minute walkthrough recorded against the live engine |
+| [`docs/media/VAYU-SARTHI_demo.mp4`](docs/media/VAYU-SARTHI_demo.mp4) | Narrated 6½-minute walkthrough of the live deployment (1080p, voice-over and subtitles; solver waiting time cut) |
 
 ---
 
