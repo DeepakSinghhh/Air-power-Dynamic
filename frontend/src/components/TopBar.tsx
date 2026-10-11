@@ -227,6 +227,7 @@ function RobustChip() {
 
 function BusyPill() {
   const busy = useStore((s) => s.busy)
+  const slowHost = useStore((s) => s.slowHost)
   const [, tick] = useState(0)
   useEffect(() => {
     if (!busy) return
@@ -234,10 +235,12 @@ function BusyPill() {
     return () => clearInterval(id)
   }, [busy])
   if (!busy) return null
+  const secs = (performance.now() - busy.since) / 1000
   return (
     <div className="busy-pill" role="status">
       <span className="spinner" />
-      {busy.label} · <span className="num">{((performance.now() - busy.since) / 1000).toFixed(1)} s</span>
+      {busy.label} · <span className="num">{secs.toFixed(1)} s</span>
+      {slowHost && secs > 4 && <span className="muted"> · free cloud server, this can take up to a minute</span>}
     </div>
   )
 }

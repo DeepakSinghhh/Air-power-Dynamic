@@ -1,9 +1,26 @@
 import type { AppState, CoaResponse, CopilotReply, CopilotStatus, EngineEvent, Hazard, MetResponse, MetSource, Preset, Proposal, ReadinessResponse, RobustnessResponse, ScenarioKind, WhatIfResponse } from './types'
 
+/** One engine session per browser tab, so visitors to a shared server do not see each other's changes. */
+const SESSION = (() => {
+  const make = () =>
+    (globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`)
+      .replace(/[^A-Za-z0-9-]/g, '')
+  try {
+    let id = sessionStorage.getItem('sarthi-session')
+    if (!id) {
+      id = make()
+      sessionStorage.setItem('sarthi-session', id)
+    }
+    return id
+  } catch {
+    return make() // storage blocked (private mode, embedded frame): a session for this page load
+  }
+})()
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...init,
-    headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
+    headers: { 'content-type': 'application/json', 'x-sarthi-session': SESSION, ...(init?.headers ?? {}) },
   })
   if (!res.ok) {
     let detail = res.statusText
@@ -36,6 +53,7 @@ export const api = {
   readiness: (at: number, proposal: boolean) => call<ReadinessResponse>(`/readiness?at=${Math.round(at)}${proposal ? '&proposal=true' : ''}`),
   copilot: (text: string) => call<CopilotReply>('/copilot', { method: 'POST', body: JSON.stringify({ text }) }),
   copilotStatus: () => call<CopilotStatus>('/copilot/status'),
+  health: () => call<{ ok: boolean; cpus: number; time_scale: number }>('/health'),
   robustness: (runs = 2000) => call<RobustnessResponse>(`/robustness?runs=${runs}`),
   sparesPropose: () => call<Proposal>('/robustness/propose', { method: 'POST' }),
   approve: (id: string) => call<AppState>(`/retask/${id}/approve`, { method: 'POST' }),

@@ -8,6 +8,7 @@ therefore finds the *smallest* set of changes that recovers the most value.
 """
 from __future__ import annotations
 
+import os
 import time
 from collections import defaultdict
 
@@ -24,6 +25,29 @@ ADD_AIRCRAFT = 100
 KEEP_CREW = 100
 TOT_SHIFT_PER_MIN = 2
 SORTIE_COST = 120  # > max quality bonus, so no sortie is flown without need
+
+
+def _effective_cpus() -> float:
+    """CPUs this process may really use: a container's CPU quota (cgroup v2 or v1), else the core count."""
+    def read(path: str) -> str:
+        with open(path) as f:
+            return f.read().strip()
+    for quota_of in (lambda: read("/sys/fs/cgroup/cpu.max").split()[:2],
+                     lambda: [read("/sys/fs/cgroup/cpu/cpu.cfs_quota_us"),
+                              read("/sys/fs/cgroup/cpu/cpu.cfs_period_us")]):
+        try:
+            quota, period = quota_of()
+            if quota not in ("max", "-1"):
+                return max(0.05, int(quota) / int(period))
+        except (OSError, ValueError):
+            continue
+    return float(os.cpu_count() or 1)
+
+
+# On a small cloud instance (e.g. 0.1 CPU) one search worker given more wall time beats eight starving ones.
+CPUS = _effective_cpus()
+DEFAULT_WORKERS = int(os.environ.get("SARTHI_SOLVER_WORKERS") or (8 if CPUS >= 2 else max(1, int(CPUS))))
+TIME_SCALE = float(os.environ.get("SARTHI_TIME_SCALE") or (1.0 if CPUS >= 1 else min(3.0, 0.25 / CPUS)))
 
 
 def churn_weight(minutes_to_launch: int) -> int:
@@ -43,7 +67,7 @@ def frozen_missions(world: World, baseline: Plan | None) -> set[str]:
 
 
 def solve(world: World, cands: Candidates | None = None, baseline: Plan | None = None,
-          hint: Plan | None = None, time_limit: float = 10.0, workers: int = 8,
+          hint: Plan | None = None, time_limit: float = 10.0, workers: int | None = None,
           churn: bool = True) -> Plan:
     """Plan, or (with `baseline`) retask. `churn=False` re-plans from scratch around frozen missions."""
     t0 = time.perf_counter()
@@ -218,9 +242,16 @@ def solve(world: World, cands: Candidates | None = None, baseline: Plan | None =
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit
-    solver.parameters.num_workers = workers
+    solver.parameters.num_workers = workers or DEFAULT_WORKERS
     solver.parameters.random_seed = 1
     status = solver.solve(model)
+
+    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE) and baseline is None and hint is not None:
+        # Not enough CPU time to find a solution: keep the valid greedy start rather than an empty plan.
+        plan = hint.model_copy(deep=True)
+        plan.solver, plan.status = "greedy (solver out of time)", solver.status_name(status)
+        plan.solve_seconds = round(time.perf_counter() - t0, 3)
+        return plan
 
     plan = Plan(solver="cp-sat", status=solver.status_name(status))
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
@@ -246,12 +277,23 @@ def solve(world: World, cands: Candidates | None = None, baseline: Plan | None =
             plan.assignments[m.id] = Assignment(mission=m.id, tot=t, sorties=sorties,
                                                 tankers=[tc.tail for tc in tks],
                                                 tanker_sorties=[tanker_sortie(world, tc, t) for tc in tks])
+    if baseline is None and hint is not None and _value(world, hint) > _value(world, plan):
+        # Short of CPU time the solver can end below its own greedy start: keep the better plan.
+        plan = hint.model_copy(deep=True)
+        plan.solver, plan.status = "greedy (solver out of time)", solver.status_name(status)
+        plan.solve_seconds = round(time.perf_counter() - t0, 3)
+        return plan
     plan.unassigned = explain_unassigned(world, cands, plan)
     if world.spare_policy and plan.assignments:
         from .robust import add_spares
         plan = add_spares(world, plan, cands, prefer=baseline)
     plan.solve_seconds = round(time.perf_counter() - t0, 3)
     return plan
+
+
+def _value(world: World, plan: Plan) -> int:
+    """Priority planned: the numerator of priority-weighted fulfilment."""
+    return sum(world.missions[m].priority for m in plan.assignments if m in world.missions)
 
 
 def _add_hints(model, hint: Plan | None, u, tot, x, y, k) -> None:

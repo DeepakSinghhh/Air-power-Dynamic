@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from pydantic import BaseModel
 
+from . import optimizer
 from .candidates import build
 from .events import PriorityChange, Resupply, RiskAcceptance, WindowChange
 from .kpi import kpis
@@ -94,7 +95,7 @@ def what_would_it_take(world: World, plan: Plan, mid: str, time_limit: float = 3
     if not opts:
         return []
     before = kpis(world, plan)["priority_weighted_fulfilment"]
-    workers = max(2, (os.cpu_count() or 4) // len(opts) + 1)
+    workers = min(max(2, (os.cpu_count() or 4) // len(opts) + 1), optimizer.DEFAULT_WORKERS)
 
     def run(o: Option) -> Outcome:
         res = retask(world, plan, o.events, time_limit, workers=workers)
@@ -109,7 +110,7 @@ def what_would_it_take(world: World, plan: Plan, mid: str, time_limit: float = 3
                        fulfilment_after=kpis(world, res_plan)["priority_weighted_fulfilment"],
                        events=[e.model_dump() for e in o.events])
 
-    with ThreadPoolExecutor(max_workers=len(opts)) as pool:
+    with ThreadPoolExecutor(max_workers=len(opts) if optimizer.CPUS >= 2 else 1) as pool:
         out = list(pool.map(run, opts))
     # Ones that work first, least disruptive first.
     return sorted(out, key=lambda o: (not o.planned, len(o.dropped), o.aircraft_changes))

@@ -1,0 +1,11 @@
+**/node_modules
+**/__pycache__
+**/*.egg-info
+**/.pytest_cache
+frontend/dist
+frontend/e2e
+engine/build
+engine/tests
+docs
+tools
+.git

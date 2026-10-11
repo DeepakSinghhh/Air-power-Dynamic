@@ -75,6 +75,7 @@ interface Store {
   setLeftTab: (t: 'missions' | 'copilot') => void
   chat: CopilotMessage[]
   copilotStatus: CopilotStatus | null
+  slowHost: boolean // a free, fractional-CPU server: solves take several times longer
   askCopilot: (text: string) => Promise<void>
   loadCopilotStatus: () => Promise<void>
 }
@@ -133,8 +134,10 @@ export const useStore = create<Store>((set, get) => {
     leftTab: 'missions',
     chat: [],
     copilotStatus: null,
+    slowHost: false,
 
     init: async () => {
+      api.health().then((h) => set({ slowHost: h.time_scale > 1 })).catch(() => {})
       await run('Loading operational picture', async () => {
         let app = await api.state()
         set({ app, viewTime: app.world.now })

@@ -51,7 +51,8 @@ def solve_coa(world: World, plan: Plan, coa_id: str, time_limit: float, workers:
 
 def compare(world: World, plan: Plan, time_limit: float = 6.0) -> list[tuple[World, Coa]]:
     """Solve every COA in parallel threads (CP-SAT releases the GIL); workers split across CPUs."""
-    workers = max(2, (os.cpu_count() or 4) // len(INTENTS) + 1)
-    with ThreadPoolExecutor(max_workers=len(INTENTS)) as pool:
+    workers = min(max(2, (os.cpu_count() or 4) // len(INTENTS) + 1), optimizer.DEFAULT_WORKERS)
+    # One at a time on a fractional CPU, so each solve gets the whole allowance.
+    with ThreadPoolExecutor(max_workers=len(INTENTS) if optimizer.CPUS >= 2 else 1) as pool:
         futs = [pool.submit(solve_coa, world, plan, cid, time_limit, workers) for cid in INTENTS]
         return [f.result() for f in futs]
